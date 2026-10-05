@@ -1,0 +1,2 @@
+# shop_character_system2
+顔認証により、初来店者を区別して接客するシステム
