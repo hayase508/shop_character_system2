@@ -1,0 +1,301 @@
+:root {
+  color-scheme: dark;
+  --ink: #f8f1e5;
+  --muted: #cbbfae;
+  --gold: #d7aa5b;
+  --gold-soft: rgba(215, 170, 91, 0.24);
+  --red: #9d3930;
+  --panel: rgba(28, 23, 18, 0.88);
+  --line: rgba(231, 208, 169, 0.22);
+  font-family: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #14110e;
+}
+
+body {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 50% 35%, rgba(125, 68, 42, 0.2), transparent 38%),
+    linear-gradient(145deg, #221b15 0%, #100e0c 52%, #1c1612 100%);
+}
+
+.display-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  padding: clamp(20px, 3vw, 46px);
+  isolation: isolate;
+}
+
+.display-shell::before {
+  position: absolute;
+  inset: 18px;
+  z-index: -1;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  content: "";
+  pointer-events: none;
+}
+
+.ambient {
+  position: absolute;
+  z-index: -2;
+  width: 38vw;
+  height: 38vw;
+  border-radius: 50%;
+  opacity: 0.14;
+  filter: blur(90px);
+}
+
+.ambient-left {
+  top: -22vw;
+  left: -12vw;
+  background: #b67536;
+}
+
+.ambient-right {
+  right: -14vw;
+  bottom: -24vw;
+  background: #842d29;
+}
+
+.display-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 0 12px;
+}
+
+.shop-mark {
+  margin: 0;
+  color: var(--gold);
+  font-size: clamp(17px, 1.5vw, 25px);
+  letter-spacing: 0.22em;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-size: 13px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9d554c;
+  box-shadow: 0 0 10px currentcolor;
+}
+
+.connection-status[data-connected="true"] .status-dot {
+  background: #79aa79;
+}
+
+.character-stage {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  padding: 18px 20px;
+}
+
+.character-halo {
+  position: absolute;
+  width: min(54vh, 48vw);
+  aspect-ratio: 1;
+  border: 1px solid rgba(215, 170, 91, 0.22);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--gold-soft), transparent 68%);
+  box-shadow: inset 0 0 80px rgba(215, 170, 91, 0.08);
+  transition: transform 600ms ease, opacity 600ms ease;
+}
+
+body[data-state="GREETING"] .character-halo {
+  opacity: 0.9;
+  transform: scale(1.08);
+}
+
+.video-frame {
+  position: relative;
+  display: grid;
+  width: min(68vw, 760px);
+  height: min(54vh, 620px);
+  overflow: hidden;
+  border-radius: 36% 36% 20px 20px;
+  place-items: center;
+}
+
+.character-video,
+.video-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.character-video {
+  z-index: 2;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 20px 34px rgba(0, 0, 0, 0.48));
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+
+.video-frame[data-video-error="true"] .character-video {
+  opacity: 0;
+}
+
+.video-fallback {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+}
+
+.video-frame[data-video-error="true"] .video-fallback { opacity: 1; }
+
+.oni-symbol {
+  display: grid;
+  width: min(30vh, 260px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(215, 170, 91, 0.3);
+  border-radius: 50%;
+  background: linear-gradient(145deg, #6c2925, #341917);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  color: #f0d6aa;
+  font-size: min(15vh, 126px);
+  place-items: center;
+  text-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dialogue-panel {
+  width: min(1120px, calc(100vw - 80px));
+  min-height: 164px;
+  margin: 0 auto;
+  padding: clamp(20px, 2.4vw, 32px) clamp(24px, 4vw, 56px);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+  text-align: center;
+}
+
+.dialogue-kicker {
+  margin: 0 0 7px;
+  color: var(--gold);
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+}
+
+.dialogue-panel h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 54px);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.dialogue-panel p:last-child {
+  max-width: 980px;
+  margin: 13px auto 0;
+  color: #eee4d4;
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-size: clamp(16px, 1.75vw, 24px);
+  line-height: 1.8;
+}
+
+.audio-button {
+  position: absolute;
+  top: 74px;
+  right: clamp(28px, 4vw, 64px);
+  z-index: 5;
+  padding: 10px 16px;
+  border: 1px solid rgba(215, 170, 91, 0.45);
+  border-radius: 999px;
+  background: rgba(25, 20, 16, 0.82);
+  color: var(--ink);
+  cursor: pointer;
+  font: 600 13px/1 "Yu Gothic", sans-serif;
+}
+
+.audio-button[data-enabled="true"] {
+  display: none;
+}
+
+.fullscreen-button {
+  position: absolute;
+  top: 76px;
+  left: 42px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 9px 16px;
+  cursor: pointer;
+}
+button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
+button:disabled { opacity: 0.5; cursor: wait; }
+.character-stage { overflow: hidden; }
+.dialogue-panel { min-height: clamp(165px, 27vh, 260px); }
+.dialogue-panel p:last-child { min-height: 3.6em; }
+.video-frame { max-height: 100%; }
+
+@media (max-width: 600px) {
+  .display-shell { padding: 20px 16px; }
+  .shop-mark { font-size: 16px; letter-spacing: 0.05em; }
+  .connection-status { font-size: 11px; }
+  .dialogue-panel { width: 100%; padding: 18px; }
+  .dialogue-panel p:last-child { font-size: 18px; }
+  .fullscreen-button { top: 64px; left: 25px; }
+  .audio-button { top: 64px; right: 25px; font-size: 11px; }
+}
+
+@media (max-aspect-ratio: 4 / 3) {
+  .video-frame {
+    width: min(88vw, 700px);
+    height: min(50vh, 560px);
+  }
+
+  .dialogue-panel {
+    width: calc(100vw - 56px);
+  }
+}
+
+@media (max-height: 720px) {
+  .display-shell {
+    padding: 18px 28px;
+  }
+
+  .video-frame {
+    height: 43vh;
+  }
+
+  .dialogue-panel {
+    min-height: 134px;
+    padding-block: 16px;
+  }
+
+  .dialogue-panel p:last-child {
+    line-height: 1.55;
+  }
+}

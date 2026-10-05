@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17130f" />
+    <title>鬼のおもてなし</title>
+    <link rel="stylesheet" href="/static/style.css?v=20261006-1" />
+  </head>
+  <body data-state="IDLE">
+    <main class="display-shell">
+      <div class="ambient ambient-left" aria-hidden="true"></div>
+      <div class="ambient ambient-right" aria-hidden="true"></div>
+
+      <header class="display-header">
+        <p class="shop-mark">鬼のおもてなし処</p>
+        <div class="connection-status" id="connectionStatus" data-connected="false">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="connectionLabel">接続中</span>
+        </div>
+      </header>
+
+      <section class="character-stage" aria-label="鬼キャラクター">
+        <div class="character-halo" aria-hidden="true"></div>
+        <div class="video-frame" id="videoFrame">
+          <div class="video-fallback" id="videoFallback" aria-hidden="true">
+            <span class="oni-symbol">鬼</span>
+          </div>
+          <video
+            id="characterVideo"
+            class="character-video"
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="auto"
+          ></video>
+        </div>
+      </section>
+
+      <section class="dialogue-panel" aria-live="polite" aria-atomic="true">
+        <p class="dialogue-kicker" id="dialogueKicker">WELCOME</p>
+        <h1 id="dialogueTitle">いらっしゃいませ</h1>
+        <p id="dialogueMessage">カメラの前で少しお待ちください</p>
+      </section>
+
+      <button class="audio-button" id="audioButton" type="button">
+        接客を開始（音声を有効にする）
+      </button>
+      <button class="fullscreen-button" id="fullscreenButton" type="button">全画面</button>
+    </main>
+
+    <script src="/static/script.js?v=20261006-1" defer></script>
+  </body>
+</html>
