@@ -38,7 +38,7 @@ class Settings:
     face_confirmation_count: int = 2
     face_confirmation_window_seconds: float = 4.0
     camera_event_cooldown_seconds: float = 2.0
-    person_cooldown_seconds: float = 60.0
+    person_cooldown_seconds: float = 20.0
     global_cooldown_seconds: float = 5.0
     visit_cooldown_minutes: float = 60.0
     discount_valid_days: int = 60
@@ -47,9 +47,12 @@ class Settings:
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8000
-    idle_video_url: str = "/static/videos/yobidashi_mobile.mp4"
+    idle_video_url: str = "/static/videos/idle.mp4"
     welcome_video_url: str = "/static/videos/yobidashi_mobile.mp4"
     returning_video_url: str = "/static/videos/yobidashi_mobile.mp4"
+    welcome_audio_url: str = "/static/audio/first-visit.wav"
+    returning_audio_url: str = "/static/audio/returning.wav"
+    returning_discount_audio_url: str = "/static/audio/returning-discount.wav"
     browser_greeting_timeout_seconds: int = 180
 
     def __post_init__(self) -> None:
@@ -75,6 +78,13 @@ class Settings:
         for url in (self.idle_video_url, self.welcome_video_url, self.returning_video_url):
             if not url.startswith("/static/videos/") or ".." in url or "\\" in url:
                 raise ValueError("Character videos must be paths below /static/videos/")
+        for url in (
+            self.welcome_audio_url,
+            self.returning_audio_url,
+            self.returning_discount_audio_url,
+        ):
+            if not url.startswith("/static/audio/") or ".." in url or "\\" in url:
+                raise ValueError("Character audio must be a path below /static/audio/")
 
 
 def load_settings(env_file: Path | None = None) -> Settings:
@@ -109,7 +119,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         camera_event_cooldown_seconds=float(
             os.getenv("CAMERA_EVENT_COOLDOWN_SECONDS", "2")
         ),
-        person_cooldown_seconds=float(os.getenv("PERSON_COOLDOWN_SECONDS", "60")),
+        person_cooldown_seconds=float(os.getenv("PERSON_COOLDOWN_SECONDS", "20")),
         global_cooldown_seconds=float(os.getenv("GLOBAL_COOLDOWN_SECONDS", "5")),
         visit_cooldown_minutes=float(os.getenv("VISIT_COOLDOWN_MINUTES", "60")),
         discount_valid_days=int(os.getenv("DISCOUNT_VALID_DAYS", "60")),
@@ -119,13 +129,23 @@ def load_settings(env_file: Path | None = None) -> Settings:
         host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", "8000")),
         idle_video_url=os.getenv(
-            "CHARACTER_VIDEO_IDLE", "/static/videos/yobidashi_mobile.mp4"
+            "CHARACTER_VIDEO_IDLE", "/static/videos/idle.mp4"
         ),
         welcome_video_url=os.getenv(
             "CHARACTER_VIDEO_WELCOME", "/static/videos/yobidashi_mobile.mp4"
         ),
         returning_video_url=os.getenv(
             "CHARACTER_VIDEO_RETURNING", "/static/videos/yobidashi_mobile.mp4"
+        ),
+        welcome_audio_url=os.getenv(
+            "CHARACTER_AUDIO_WELCOME", "/static/audio/first-visit.wav"
+        ),
+        returning_audio_url=os.getenv(
+            "CHARACTER_AUDIO_RETURNING", "/static/audio/returning.wav"
+        ),
+        returning_discount_audio_url=os.getenv(
+            "CHARACTER_AUDIO_RETURNING_DISCOUNT",
+            "/static/audio/returning-discount.wav",
         ),
         browser_greeting_timeout_seconds=int(
             os.getenv("BROWSER_GREETING_TIMEOUT_SECONDS", "180")

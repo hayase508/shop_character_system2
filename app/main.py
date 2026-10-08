@@ -77,6 +77,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     app_settings.returning_video_url}:
             if not (app_settings.static_dir / url.removeprefix("/static/")).is_file():
                 logger.error("[VIDEO] File not found: %s; display will use fallback", url)
+        for url in {
+            app_settings.welcome_audio_url,
+            app_settings.returning_audio_url,
+            app_settings.returning_discount_audio_url,
+        }:
+            if not (app_settings.static_dir / url.removeprefix("/static/")).is_file():
+                logger.warning(
+                    "[AUDIO] File not found: %s; display will use SpeechSynthesis",
+                    url,
+                )
 
         async def recover_database() -> None:
             while True:
@@ -140,10 +150,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         videos_ok = all((app_settings.static_dir / url.removeprefix("/static/")).is_file()
                         for url in {app_settings.idle_video_url, app_settings.welcome_video_url,
                                     app_settings.returning_video_url})
+        audio_ok = all(
+            (app_settings.static_dir / url.removeprefix("/static/")).is_file()
+            for url in {
+                app_settings.welcome_audio_url,
+                app_settings.returning_audio_url,
+                app_settings.returning_discount_audio_url,
+            }
+        )
         return {
             "status": "ok" if db_ok and videos_ok and camera_status["status"] in {"running", "disabled"} else "degraded",
             "database": "ok" if db_ok else "error",
             "videos": "ok" if videos_ok else "missing",
+            "greeting_audio": "ok" if audio_ok else "speech_synthesis_fallback",
             "camera": camera_status,
             "websocket_clients": await websocket_manager.connection_count(),
             "display_ready": websocket_manager.display_ready(),
@@ -152,12 +171,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/config")
     async def public_config() -> dict[str, Any]:
+        audio_urls = {
+            "new": app_settings.welcome_audio_url,
+            "returning": app_settings.returning_audio_url,
+            "returning_discount": app_settings.returning_discount_audio_url,
+        }
+        subtitle_cues = {
+            name: f"{url.rsplit('.', 1)[0]}.cues.json"
+            for name, url in audio_urls.items()
+        }
+        audio_asset_timestamps: list[int] = []
+        for url in (*audio_urls.values(), *subtitle_cues.values()):
+            asset_path = app_settings.static_dir / url.removeprefix("/static/")
+            try:
+                audio_asset_timestamps.append(asset_path.stat().st_mtime_ns)
+            except OSError:
+                continue
         return {
             "videos": {
                 "idle": app_settings.idle_video_url,
                 "new": app_settings.welcome_video_url,
                 "returning": app_settings.returning_video_url,
             },
+            "audio": audio_urls,
+            "subtitle_cues": subtitle_cues,
+            "audio_asset_version": (
+                str(max(audio_asset_timestamps)) if audio_asset_timestamps else None
+            ),
             "idle_title": "いらっしゃいませ",
             "idle_message": "カメラの前で少しお待ちください",
             "greeting_timeout_seconds": app_settings.browser_greeting_timeout_seconds,

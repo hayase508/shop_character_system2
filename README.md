@@ -6,6 +6,8 @@ GitHubの調査時点（`441be2a`）ではこの概要READMEのみで、既存�
 
 ## Windowsでの初回起動（Python 3.10・64bit）
 
+初回セットアップ後は、`start_shop.bat`をダブルクリックするとサーバーを起動して接客画面を開けます。PCを再起動した場合も、このファイルから起動してください。
+
 Git、Python 3.10、EdgeまたはChrome、USBカメラを用意してください。以下は **コマンドプロンプト（cmd）** の手順です。OneDrive配下で書き込みエラーが出る場合は、同期対象外の作業フォルダーを使ってください。
 
 1. リポジトリを取得し、フォルダーへ移動します。
@@ -49,7 +51,7 @@ Git、Python 3.10、EdgeまたはChrome、USBカメラを用意してくださ�
 
 5. 動画を確認します。
 
-   同梱の `static/videos/yobidashi_mobile.mp4` を使います。元ファイル名が `yobidashi_mobile(1).mp4` でも、ここへコピーして `yobidashi_mobile.mp4` とすれば設定変更は不要です。ファイルがない場合でもサーバーは起動し、画面には「鬼」の代替表示と字幕が出ます。
+   待機中は `static/videos/idle.mp4`、接客中は `static/videos/yobidashi_mobile.mp4` を使います。ファイルがない場合でもサーバーは起動し、画面には「鬼」の代替表示と字幕が出ます。
 
 6. DBを初期化してサーバーを起動します。
 
@@ -105,7 +107,7 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8000/api/debug/returning-custom
 | FACE_CONFIRMATION_COUNT | 2 | 同じ顔と確認する観測回数 |
 | FACE_CONFIRMATION_WINDOW_SECONDS | 4 | 複数回の観測をまとめる時間 |
 | CAMERA_EVENT_COOLDOWN_SECONDS | 2 | 確認済み顔をバックエンドに渡す最短間隔 |
-| PERSON_COOLDOWN_SECONDS | 60 | 同じ人物への接客間隔（前の接客終了から） |
+| PERSON_COOLDOWN_SECONDS | 20 | 同じ人物への接客間隔（前の接客終了から） |
 | GLOBAL_COOLDOWN_SECONDS | 5 | 別人物を含む接客間隔（終了から） |
 | VISIT_COOLDOWN_MINUTES | 60 | 前回認識からこの時間を**超えたら**新しい来店 |
 | DISCOUNT_VALID_DAYS | 60 | 新しい来店での特典期限（日数表示も連動） |
@@ -126,9 +128,18 @@ HTTPとWebSocketは同じPCのlocalhost/127.0.0.1で使う構成です。別ホ�
 CHARACTER_VIDEO_IDLE=/static/videos/idle.mp4
 CHARACTER_VIDEO_WELCOME=/static/videos/welcome.mp4
 CHARACTER_VIDEO_RETURNING=/static/videos/returning.mp4
+CHARACTER_AUDIO_WELCOME=/static/audio/first-visit.wav
+CHARACTER_AUDIO_RETURNING=/static/audio/returning.wav
+CHARACTER_AUDIO_RETURNING_DISCOUNT=/static/audio/returning-discount.wav
 ```
 
-対応ファイルをstatic/videosへ配置してください。初期状態では3項目とも同じ動画です。MP4/H.264など対象ブラウザで再生できる形式を使います。待機動画はループ、接客動画は1回再生し、音声が長いときは最後のフレームで待ちます。元動画の音は消して、読み上げとの重複を防ぎます。
+対応ファイルをstatic/videosへ配置してください。初期状態では待機中に `idle.mp4`、初来店・再来店の接客中に `yobidashi_mobile.mp4` を使います。MP4/H.264など対象ブラウザで再生できる形式を使います。待機動画はループ、接客動画は1回再生し、音声が長いときは最後のフレームで待ちます。元動画の音は消して、読み上げとの重複を防ぎます。
+
+初来店時は `static/audio/first-visit.wav` を再生し、再生できない場合はブラウザのSpeechSynthesisへ自動的に切り替わります。この音声は「VOICEVOX:四国めたん」を使用しています。元の `.vvproj` には飲み物の旧価格（300円）が残っているため、再生成時はVOICEVOXエンジンを起動し、`python -m tools.export_voicevox_project <project.vvproj> static/audio/first-visit.wav --cues-output static/audio/first-visit.cues.json --replace-text "300円=500円"` を実行してください。元プロジェクトを直接変更せず、音声と字幕を現行価格へ揃えられます。
+
+再来店時は `returning.wav`、60日以内の特典対象者には特典案内を含む `returning-discount.wav` を再生します。「○日ぶり」は画面に表示しますが、事前生成音声では読み上げません。音声ファイルが再生できない場合は、動的なメッセージ全体をSpeechSynthesisで読み上げます。
+
+録音音声の字幕は同名の `*.cues.json` に開始・終了時刻を保存し、音声の再生位置に合わせて切り替えます。画面には最大2行だけ表示します。`.vvproj`から音声と字幕を再生成するときは `--cues-output` でJSONの保存先を指定してください。
 
 読み上げは `static/script.js` の `speak(text)` に分離されています。日本語音声を選び、文章を句点などで区切って字幕と音声を順次切り替えます。読み上げが失敗した文は読める時間だけ字幕を残します。VOICEVOXに変更する場合はこの関数を「音声再生終了で解決するPromise」に置き換えれば、接客状態管理を再利用できます。
 SpeechSynthesisの利用方法は [MDN](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis) を参照してください。

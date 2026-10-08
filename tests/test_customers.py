@@ -23,6 +23,11 @@ def test_new_roundtrip(service):
     assert service.match_customer(FACE).distance == 0
     assert service.match_customer((1.1,) * 128) is None
 
+def test_new_customer_drink_price_is_five_hundred_yen():
+    message = build_greeting_message("new", None, False)
+    assert "お飲み物は500円" in message
+    assert "300円" not in message
+
 @pytest.mark.parametrize("days,eligible", [(10, True), (60, True), (61, False)])
 def test_previous_timestamp(service, days, eligible):
     service.register_new_customer(FACE, START)

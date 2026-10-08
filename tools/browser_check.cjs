@@ -44,24 +44,42 @@ const fs = require("node:fs");
     await page.getByRole("button", { name: "接客を開始（音声を有効にする）" }).click();
     await page.waitForFunction(() => document.getElementById("audioButton").dataset.enabled === "true");
 
-    for (const [name, route, eligible] of [
-      ["new", "/api/debug/new-customer", false],
-      ["returning-10", "/api/debug/returning-customer?days_since_last_visit=10", true],
-      ["returning-60", "/api/debug/returning-customer?days_since_last_visit=60", true],
-      ["returning-61", "/api/debug/returning-customer?days_since_last_visit=61", false],
+    for (const [name, route, eligible, audioPath] of [
+      ["new", "/api/debug/new-customer", false, "/static/audio/first-visit.wav"],
+      ["returning-10", "/api/debug/returning-customer?days_since_last_visit=10", true,
+        "/static/audio/returning-discount.wav"],
+      ["returning-60", "/api/debug/returning-customer?days_since_last_visit=60", true,
+        "/static/audio/returning-discount.wav"],
+      ["returning-61", "/api/debug/returning-customer?days_since_last_visit=61", false,
+        "/static/audio/returning.wav"],
     ]) {
       const response = await page.request.post("http://127.0.0.1:8765" + route);
       assert.equal(response.status(), 200);
       assert.equal((await response.json()).event.discount_eligible, eligible);
       await page.waitForFunction(() => document.body.dataset.state === "GREETING");
-      if (name === "new") await page.screenshot({ path: ".test-artifacts/greeting.png" });
-      await page.waitForFunction(() => document.body.dataset.state === "IDLE", null, { timeout: 20000 });
+      assert.equal(await page.locator("#greetingAudio").getAttribute("src"), audioPath);
+      if (name === "new") {
+        const initialSubtitle = await page.locator("#dialogueMessage").textContent();
+        await page.waitForFunction(
+          previous => document.getElementById("dialogueMessage").textContent !== previous,
+          initialSubtitle,
+          { timeout: 12000 },
+        );
+        const subtitleMetrics = await page.locator("#dialogueMessage").evaluate(element => {
+          const style = getComputedStyle(element);
+          return { height: element.clientHeight, lineHeight: parseFloat(style.lineHeight) };
+        });
+        assert.ok(subtitleMetrics.height <= subtitleMetrics.lineHeight * 2.1,
+          `Subtitle exceeded two lines: ${JSON.stringify(subtitleMetrics)}`);
+        await page.screenshot({ path: ".test-artifacts/greeting.png" });
+      }
+      await page.waitForFunction(() => document.body.dataset.state === "IDLE", null, { timeout: 45000 });
       assert.equal((await (await page.request.get("http://127.0.0.1:8765/api/state")).json()).state, "IDLE");
       console.log("Passed:", name);
     }
     assert.equal(errors.length, 0, errors.join("\n"));
-    assert.ok(await page.evaluate(() => window.testSpoken.length > 10),
-      "The speech adapter must actually run rather than falling back to text-only.");
+    assert.equal(await page.evaluate(() => window.testSpoken.length), 1,
+      "Only the click-to-unlock test phrase should use SpeechSynthesis when WAV files work.");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: ".test-artifacts/mobile.png" });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);

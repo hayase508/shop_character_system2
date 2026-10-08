@@ -10,6 +10,7 @@ function setup() {
     getAttribute(name) { return this[name]; }
     load() {}
     play() { return Promise.resolve(); }
+    pause() {}
   }
   const elements = new Map();
   const get = id => {
@@ -50,6 +51,7 @@ test("speech and video must both finish; duplicate/different events cannot overl
   run('runtime.displayActive = true');
   run("handleServerMessage(" + JSON.stringify(event) + ")");
   assert.equal(get("dialogueMessage").textContent, "こんにちは。");
+  assert.equal(get("menuBoard").hidden, false);
   run("handleServerMessage(" + JSON.stringify(event) + ")");
   run("handleServerMessage(" + JSON.stringify({ ...event, greeting_id: "g2" }) + ")");
   assert.equal(speech.spoken.length, 1);
@@ -62,7 +64,68 @@ test("speech and video must both finish; duplicate/different events cannot overl
   get("characterVideo").dispatchEvent(new Event("ended"));
   await flush();
   assert.equal(run("runtime.state"), "IDLE");
+  assert.equal(get("menuBoard").hidden, true);
   assert.equal(run("runtime.socket.sent[0].greeting_id"), "g1");
+});
+
+test("usage guide stays hidden for returning customers", async () => {
+  const { run, get } = setup();
+  await flush();
+  run('runtime.displayActive = true');
+  run("handleServerMessage(" + JSON.stringify({ ...event, customer_type: "returning" }) + ")");
+  assert.equal(get("menuBoard").hidden, true);
+  run("returnToIdle()");
+});
+
+test("new customers use configured recorded audio", async () => {
+  const { run, get, speech } = setup();
+  await flush();
+  run('runtime.config.audio = {new: "/first-visit.wav", returning: null}');
+  run('runtime.subtitleCues = {new: [{start: 0, end: 1, text: "最初の字幕"}, {start: 1, end: 2, text: "次の字幕"}]}');
+  run('runtime.displayActive = true');
+  run("handleServerMessage(" + JSON.stringify({ ...event, message: "録音音声です。" }) + ")");
+  assert.equal(get("greetingAudio").src, "/first-visit.wav");
+  assert.equal(get("dialogueMessage").textContent, "最初の字幕");
+  get("greetingAudio").currentTime = 1.2;
+  get("greetingAudio").dispatchEvent(new Event("timeupdate"));
+  assert.equal(get("dialogueMessage").textContent, "次の字幕");
+  assert.equal(speech.spoken.length, 0);
+  get("characterVideo").dispatchEvent(new Event("ended"));
+  get("greetingAudio").dispatchEvent(new Event("ended"));
+  await flush();
+  assert.equal(run("runtime.state"), "IDLE");
+});
+
+test("recorded audio URL uses the server asset version", async () => {
+  const { run, get } = setup();
+  await flush();
+  run('runtime.config.audio = {new: "/first-visit.wav"}');
+  run('runtime.config.audio_asset_version = "updated-audio"');
+  run('runtime.displayActive = true');
+  run("handleServerMessage(" + JSON.stringify({ ...event, message: "録音音声です。" }) + ")");
+  assert.equal(get("greetingAudio").src, "/first-visit.wav?v=updated-audio");
+  run("returnToIdle()");
+});
+
+test("returning customers select the correct recorded audio", async () => {
+  const { run, get, speech } = setup();
+  await flush();
+  run('runtime.config.audio = {new: null, returning: "/returning.wav", returning_discount: "/returning-discount.wav"}');
+  run('runtime.displayActive = true');
+  run("handleServerMessage(" + JSON.stringify({
+    ...event, greeting_id: "returning-1", customer_type: "returning", discount_eligible: false,
+  }) + ")");
+  assert.equal(get("greetingAudio").src, "/returning.wav");
+  get("characterVideo").dispatchEvent(new Event("ended"));
+  get("greetingAudio").dispatchEvent(new Event("ended"));
+  await flush();
+
+  run("handleServerMessage(" + JSON.stringify({
+    ...event, greeting_id: "returning-2", customer_type: "returning", discount_eligible: true,
+  }) + ")");
+  assert.equal(get("greetingAudio").src, "/returning-discount.wav");
+  assert.equal(speech.spoken.length, 0);
+  run("returnToIdle()");
 });
 
 test("server cancellation removes stale callbacks and stops speech", async () => {

@@ -3,17 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#17130f" />
-    <title>鬼のおもてなし</title>
-    <link rel="stylesheet" href="/static/style.css?v=20261006-1" />
+    <meta name="theme-color" content="#2b1712" />
+    <title>いちごうカフェ</title>
+    <link rel="stylesheet" href="/static/style.css?v=20261008-6" />
   </head>
   <body data-state="IDLE">
     <main class="display-shell">
-      <div class="ambient ambient-left" aria-hidden="true"></div>
-      <div class="ambient ambient-right" aria-hidden="true"></div>
+      <div class="washi-texture" aria-hidden="true"></div>
+      <div class="asanoha-pattern" aria-hidden="true"></div>
 
       <header class="display-header">
-        <p class="shop-mark">鬼のおもてなし処</p>
+        <div class="shop-identity">
+          <span class="shop-crest" aria-hidden="true">一</span>
+          <div>
+            <p class="shop-mark">いちごうカフェ</p>
+            <p class="shop-submark">御食事と珈琲</p>
+          </div>
+        </div>
         <div class="connection-status" id="connectionStatus" data-connected="false">
           <span class="status-dot" aria-hidden="true"></span>
           <span id="connectionLabel">接続中</span>
@@ -21,7 +27,14 @@
       </header>
 
       <section class="character-stage" aria-label="鬼キャラクター">
+        <div class="stage-sun" aria-hidden="true"></div>
         <div class="character-halo" aria-hidden="true"></div>
+        <figure class="menu-board" id="menuBoard" hidden>
+          <img
+            src="/static/images/usage-guide.png"
+            alt="お店の利用方法。豚汁たまご定食、飲み物、再来店特典、セルフ配膳のご案内"
+          />
+        </figure>
         <div class="video-frame" id="videoFrame">
           <div class="video-fallback" id="videoFallback" aria-hidden="true">
             <span class="oni-symbol">鬼</span>
@@ -39,7 +52,8 @@
       </section>
 
       <section class="dialogue-panel" aria-live="polite" aria-atomic="true">
-        <p class="dialogue-kicker" id="dialogueKicker">WELCOME</p>
+        <span class="dialogue-seal" aria-hidden="true">福</span>
+        <p class="dialogue-kicker" id="dialogueKicker">お客様をお待ちしています</p>
         <h1 id="dialogueTitle">いらっしゃいませ</h1>
         <p id="dialogueMessage">カメラの前で少しお待ちください</p>
       </section>
@@ -48,8 +62,10 @@
         接客を開始（音声を有効にする）
       </button>
       <button class="fullscreen-button" id="fullscreenButton" type="button">全画面</button>
+      <audio id="greetingAudio" preload="auto"></audio>
+      <p class="voice-credit">VOICEVOX:四国めたん</p>
     </main>
 
-    <script src="/static/script.js?v=20261006-1" defer></script>
+    <script src="/static/script.js?v=20261008-5" defer></script>
   </body>
 </html>

@@ -4,6 +4,8 @@ const State = Object.freeze({ IDLE: "IDLE", GREETING: "GREETING" });
 const elements = {
   video: document.getElementById("characterVideo"),
   videoFrame: document.getElementById("videoFrame"),
+  menuBoard: document.getElementById("menuBoard"),
+  greetingAudio: document.getElementById("greetingAudio"),
   title: document.getElementById("dialogueTitle"),
   message: document.getElementById("dialogueMessage"),
   kicker: document.getElementById("dialogueKicker"),
@@ -14,7 +16,7 @@ const elements = {
 const runtime = {
   state: State.IDLE, socket: null, activeGreetingId: null,
   enabled: false, displayActive: false, abort: null, utterance: null,
-  reconnectDelayMs: 1000, reconnectTimer: null, config: null,
+  reconnectDelayMs: 1000, reconnectTimer: null, config: null, subtitleCues: {},
 };
 
 function send(payload) {
@@ -74,15 +76,18 @@ async function beginGreeting(payload) {
   runtime.activeGreetingId = payload.greeting_id;
   runtime.abort = new AbortController();
   const signal = runtime.abort.signal;
+  const isNewCustomer = payload.customer_type === "new";
   document.body.dataset.state = State.GREETING;
-  elements.kicker.textContent = payload.customer_type === "new" ? "FIRST VISIT" : "WELCOME BACK";
-  elements.title.textContent = payload.customer_type === "new" ? "はじめまして" : "おかえりなさい";
+  document.body.dataset.customerType = payload.customer_type;
+  elements.menuBoard.hidden = !isNewCustomer;
+  elements.kicker.textContent = isNewCustomer ? "初めてのご来店" : "またのご来店";
+  elements.title.textContent = isNewCustomer ? "はじめまして" : "おかえりなさい";
   let watchdog;
   try {
     await Promise.race([
       Promise.allSettled([
         playGreetingVideo(runtime.config.videos[payload.customer_type], signal),
-        speak(payload.message, signal),
+        playGreetingVoice(payload, signal),
       ]),
       new Promise(resolve => {
         watchdog = setTimeout(() => {
@@ -98,6 +103,88 @@ async function beginGreeting(payload) {
   } finally {
     clearTimeout(watchdog);
   }
+}
+
+function playRecordedAudio(url, signal, cues = []) {
+  return new Promise(resolve => {
+    let done = false;
+    let currentCueIndex = -1;
+    const audio = elements.greetingAudio;
+    const updateSubtitle = () => {
+      if (!cues.length) return;
+      const position = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+      let cueIndex = cues.findIndex(cue => position >= cue.start && position < cue.end);
+      if (cueIndex < 0) cueIndex = position >= cues[cues.length - 1].end ? cues.length - 1 : 0;
+      if (cueIndex !== currentCueIndex) {
+        currentCueIndex = cueIndex;
+        elements.message.textContent = cues[cueIndex].text;
+      }
+    };
+    const finish = successful => {
+      if (done) return;
+      done = true;
+      audio.removeEventListener("ended", ended);
+      audio.removeEventListener("error", failed);
+      audio.removeEventListener("timeupdate", updateSubtitle);
+      signal.removeEventListener("abort", aborted);
+      resolve(successful);
+    };
+    const ended = () => finish(true);
+    const failed = () => {
+      console.warn("[AUDIO] 録音音声を再生できません。音声合成へ切り替えます");
+      audio.pause();
+      finish(false);
+    };
+    const aborted = () => {
+      audio.pause();
+      finish(false);
+    };
+    if (!url || signal.aborted) { finish(false); return; }
+    audio.addEventListener("ended", ended, { once: true });
+    audio.addEventListener("error", failed, { once: true });
+    audio.addEventListener("timeupdate", updateSubtitle);
+    signal.addEventListener("abort", aborted, { once: true });
+    try {
+      if (audio.getAttribute("src") !== url) {
+        audio.src = url;
+        audio.load();
+      }
+      audio.currentTime = 0;
+      updateSubtitle();
+      audio.play()?.catch(failed);
+    } catch (error) {
+      console.warn("[AUDIO]", error);
+      failed();
+    }
+  });
+}
+
+async function playGreetingVoice(payload, signal) {
+  const audioConfig = runtime.config.audio || {};
+  const configuredUrl = payload.customer_type === "returning" && payload.discount_eligible
+    ? (audioConfig.returning_discount || audioConfig.returning)
+    : audioConfig[payload.customer_type];
+  const recordedUrl = withAssetVersion(configuredUrl, runtime.config.audio_asset_version);
+  const cueKey = payload.customer_type === "returning" && payload.discount_eligible
+    ? "returning_discount"
+    : payload.customer_type;
+  if (recordedUrl) {
+    window.speechSynthesis?.cancel();
+    elements.message.textContent = payload.message;
+    const played = await playRecordedAudio(
+      recordedUrl,
+      signal,
+      runtime.subtitleCues[cueKey] || [],
+    );
+    if (played || signal.aborted) return;
+  }
+  await speak(payload.message, signal);
+}
+
+function withAssetVersion(url, version) {
+  if (!url || !version) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${encodeURIComponent(version)}`;
 }
 
 function setVideoSource(url) {
@@ -192,7 +279,7 @@ function speakSentence(text, signal) {
     }
   });
 }
-// Replace this adapter to integrate VOICEVOX later.
+// Browser speech is the fallback when a configured recorded voice cannot play.
 async function speak(text, signal = new AbortController().signal) {
   window.speechSynthesis?.cancel();
   const sentences = text.match(/[^。！？!?]+[。！？!?]?/gu) || [text];
@@ -206,12 +293,16 @@ async function speak(text, signal = new AbortController().signal) {
 function returnToIdle() {
   runtime.abort?.abort();
   runtime.abort = null;
+  elements.greetingAudio.pause();
+  elements.greetingAudio.currentTime = 0;
   window.speechSynthesis?.cancel();
   runtime.state = State.IDLE;
   runtime.activeGreetingId = null;
   document.body.dataset.state = State.IDLE;
+  delete document.body.dataset.customerType;
+  elements.menuBoard.hidden = true;
   if (!runtime.config) return;
-  elements.kicker.textContent = "WELCOME";
+  elements.kicker.textContent = "お客様をお待ちしています";
   elements.title.textContent = runtime.config.idle_title;
   elements.message.textContent = runtime.config.idle_message;
   elements.video.loop = true;
@@ -241,6 +332,7 @@ async function initialize() {
     const response = await fetch("/api/config", { cache: "no-store" });
     if (!response.ok) throw new Error("Configuration request failed");
     runtime.config = await response.json();
+    runtime.subtitleCues = await loadSubtitleCues(runtime.config.subtitle_cues);
     returnToIdle();
     connectWebSocket();
     elements.audioButton.disabled = false;
@@ -249,5 +341,26 @@ async function initialize() {
     connectionStatus(false, "準備中です");
     setTimeout(initialize, 5000);
   }
+}
+
+async function loadSubtitleCues(cueUrls = {}) {
+  const cueEntries = await Promise.all(Object.entries(cueUrls).map(async ([name, url]) => {
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`Subtitle request failed: ${response.status}`);
+      const cues = await response.json();
+      if (!Array.isArray(cues)) throw new Error("Subtitle data is not an array");
+      const validCues = cues.filter(cue =>
+        cue && typeof cue.text === "string" &&
+        Number.isFinite(cue.start) && Number.isFinite(cue.end) &&
+        cue.start >= 0 && cue.end > cue.start
+      );
+      return [name, validCues];
+    } catch (error) {
+      console.warn("[SUBTITLE]", name, error);
+      return [name, []];
+    }
+  }));
+  return Object.fromEntries(cueEntries);
 }
 void initialize();
