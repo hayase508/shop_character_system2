@@ -25,6 +25,7 @@ def test_new_roundtrip(service):
 
 def test_new_customer_drink_price_is_five_hundred_yen():
     message = build_greeting_message("new", None, False)
+    assert "豚汁とたまごとご飯は、すべてお代わり自由" in message
     assert "お飲み物は500円" in message
     assert "300円" not in message
 

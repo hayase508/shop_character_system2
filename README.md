@@ -135,7 +135,7 @@ CHARACTER_AUDIO_RETURNING_DISCOUNT=/static/audio/returning-discount.wav
 
 対応ファイルをstatic/videosへ配置してください。初期状態では待機中に `idle.mp4`、初来店・再来店の接客中に `yobidashi_mobile.mp4` を使います。MP4/H.264など対象ブラウザで再生できる形式を使います。待機動画はループ、接客動画は1回再生し、音声が長いときは最後のフレームで待ちます。元動画の音は消して、読み上げとの重複を防ぎます。
 
-初来店時は `static/audio/first-visit.wav` を再生し、再生できない場合はブラウザのSpeechSynthesisへ自動的に切り替わります。この音声は「VOICEVOX:四国めたん」を使用しています。元の `.vvproj` には飲み物の旧価格（300円）が残っているため、再生成時はVOICEVOXエンジンを起動し、`python -m tools.export_voicevox_project <project.vvproj> static/audio/first-visit.wav --cues-output static/audio/first-visit.cues.json --replace-text "300円=500円"` を実行してください。元プロジェクトを直接変更せず、音声と字幕を現行価格へ揃えられます。
+初来店時は `static/audio/first-visit.wav` を再生し、再生できない場合はブラウザのSpeechSynthesisへ自動的に切り替わります。この音声は「VOICEVOX:四国めたん」を使用しています。元の `.vvproj` には飲み物の旧価格（300円）と豚汁を含まない旧案内が残っているため、再生成時はVOICEVOXエンジンを起動し、`python -m tools.export_voicevox_project <project.vvproj> static/audio/first-visit.wav --cues-output static/audio/first-visit.cues.json --replace-text "300円=500円" --replace-text "たまごとご飯はお代わり自由です。=豚汁とたまごとご飯は、すべてお代わり自由です。"` を実行してください。元プロジェクトを直接変更せず、音声と字幕を現行内容へ揃えられます。
 
 再来店時は `returning.wav`、60日以内の特典対象者には特典案内を含む `returning-discount.wav` を再生します。「○日ぶり」は画面に表示しますが、事前生成音声では読み上げません。音声ファイルが再生できない場合は、動的なメッセージ全体をSpeechSynthesisで読み上げます。
 
