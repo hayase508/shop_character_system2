@@ -96,6 +96,18 @@ def test_configured_discount_message():
     message = build_greeting_message("returning", 10, True, 30)
     assert "30日以内" in message and "60日以内" not in message
 
+def test_discount_message_explains_qr_code_at_payment_machine():
+    message = build_greeting_message("returning", 10, True)
+    assert message == (
+        "いらっしゃいませ。前回の来店から60日以内なので、"
+        "QRコードを精算機にかざすと、豚汁たまご定食が500円になります。"
+    )
+
+def test_expired_discount_message_does_not_mention_qr_code():
+    message = build_greeting_message("returning", 61, False)
+    assert "QRコード" not in message
+    assert "500円" not in message
+
 def test_reset(service):
     service.register_new_customer(FACE, START)
     service.database.clear_customers()

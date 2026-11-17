@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#2b1712" />
     <title>いちごうカフェ</title>
-    <link rel="stylesheet" href="/static/style.css?v=20261008-6" />
+    <link rel="stylesheet" href="/static/style.css?v=20261117-1" />
   </head>
   <body data-state="IDLE">
     <main class="display-shell">
@@ -49,23 +49,31 @@
             preload="auto"
           ></video>
         </div>
+        <figure class="checkout-board" id="checkoutBoard" hidden>
+          <img
+            id="checkoutImage"
+            src="/static/images/checkout-machine.png?v=20261020-1"
+            alt="精算機の画面。通常1,200円の定食と、QRコード利用時の500円表示"
+          />
+        </figure>
       </section>
 
       <section class="dialogue-panel" aria-live="polite" aria-atomic="true">
         <span class="dialogue-seal" aria-hidden="true">福</span>
         <p class="dialogue-kicker" id="dialogueKicker">お客様をお待ちしています</p>
         <h1 id="dialogueTitle">いらっしゃいませ</h1>
+        <p class="question-text" id="questionText" hidden></p>
         <p id="dialogueMessage">カメラの前で少しお待ちください</p>
       </section>
 
       <button class="audio-button" id="audioButton" type="button">
-        接客を開始（音声を有効にする）
+        接客を開始
       </button>
-      <button class="fullscreen-button" id="fullscreenButton" type="button">全画面</button>
+      <button class="fullscreen-button" id="fullscreenButton" type="button">全画面表示</button>
       <audio id="greetingAudio" preload="auto"></audio>
       <p class="voice-credit">VOICEVOX:四国めたん</p>
     </main>
 
-    <script src="/static/script.js?v=20261008-5" defer></script>
+  <script src="/static/script.js?v=20261117-3" defer></script>
   </body>
 </html>

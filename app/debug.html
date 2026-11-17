@@ -14,6 +14,7 @@ p{font-family:"Yu Gothic","Hiragino Kaku Gothic ProN",sans-serif}
 a,button{display:inline-block;margin:7px 5px;padding:11px 18px;border:1px solid rgba(216,173,85,.62);border-radius:3px;background:linear-gradient(#9a382e,#6e211c);box-shadow:0 6px 16px rgba(0,0,0,.24);color:#fff4dc;font:600 15px/1.4 "Yu Gothic",sans-serif;text-decoration:none;cursor:pointer}
 a:hover,button:hover{filter:brightness(1.14)}
 input{width:110px;margin-left:8px;padding:8px 10px;border:1px solid #a57c3c;border-radius:3px;background:#f5e8ce;color:#2a1a15;font-size:16px}
+#question{width:min(560px,90vw)}
 pre{min-height:150px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:24px;padding:22px;border:6px solid #63271f;outline:1px solid rgba(216,173,85,.68);outline-offset:-11px;background:linear-gradient(150deg,#f8edda,#e3cfa9);box-shadow:0 18px 44px rgba(0,0,0,.35);color:#2a1a15;font:14px/1.65 ui-monospace,monospace}
 @media(max-width:600px){body{padding:34px 24px}body::before{inset:8px}h1{font-size:25px}a,button{margin:5px 2px;padding:10px 12px;font-size:13px}}
 </style>
@@ -27,6 +28,10 @@ pre{min-height:150px;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:24px
 <button data-url="/api/debug/returning-customer?days_since_last_visit=61">60日を超過</button>
 <button data-url="/api/debug/finish-greeting">接客を中断</button>
 <button id="health">状態を確認</button>
+<p>FAQ／固定案内／Gemini経路の文字テスト <input id="question" value="豚汁はおかわりできますか？"></p>
+<button id="question-answer">FAQを文字でテスト</button>
+<button id="gemini-answer">Geminiを明示してテスト（開発用）</button>
+<p>VADを試す場合は、接客画面でマイクを許可してから疑似来店を開始してください。案内終了後にREADYとなり、ボタンなしで質問できます。</p>
 <pre id="result" aria-live="polite">テスト結果が表示されます。</pre>
-<script src="/static/debug.js" defer></script>
+<script src="/static/debug.js?v=20261008-2" defer></script>
 </html>

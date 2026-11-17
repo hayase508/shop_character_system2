@@ -84,6 +84,13 @@ def build_greeting_message(
             "どうぞ、ごゆっくりお過ごしください。"
         )
 
+    if discount_eligible:
+        return (
+            "いらっしゃいませ。"
+            f"前回の来店から{discount_valid_days}日以内なので、"
+            "QRコードを精算機にかざすと、豚汁たまご定食が500円になります。"
+        )
+
     if days_since_last_visit is not None and days_since_last_visit >= 1:
         message = (
             f"お久しぶりですね。{days_since_last_visit}日ぶりですね。"
@@ -92,9 +99,4 @@ def build_greeting_message(
     else:
         message = "また来てくださって、ありがとうございます。お元気でしたか？"
 
-    if discount_eligible:
-        message += (
-            f"前回のご来店から{discount_valid_days}日以内ですので、"
-            "本日はたまご定食を500円でご利用いただけます。"
-        )
     return message

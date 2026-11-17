@@ -15,6 +15,7 @@ class WebSocketManager:
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._display: WebSocket | None = None
+        self._questions_available = False
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -27,6 +28,7 @@ class WebSocketManager:
             self._connections.discard(websocket)
             if self._display is websocket:
                 self._display = None
+                self._questions_available = False
         logger.info("[WEBSOCKET] Disconnected: clients=%s", await self.connection_count())
 
     async def connection_count(self) -> int:
@@ -39,7 +41,16 @@ class WebSocketManager:
                 logger.warning("[WEBSOCKET] Display claim rejected; another display is active")
                 return False
             self._display = websocket
+            self._questions_available = False
             logger.info("[WEBSOCKET] Display is ready")
+            return True
+
+    async def set_question_capability(self, websocket: WebSocket, available: bool) -> bool:
+        async with self._lock:
+            if self._display is not websocket:
+                return False
+            self._questions_available = bool(available)
+            logger.info("[QUESTION] Browser microphone available: %s", available)
             return True
 
     def is_display(self, websocket: WebSocket) -> bool:
@@ -47,6 +58,9 @@ class WebSocketManager:
 
     def display_ready(self) -> bool:
         return self._display is not None
+
+    def questions_available(self) -> bool:
+        return self._display is not None and self._questions_available
 
     async def broadcast(self, payload: dict[str, Any]) -> int:
         async with self._lock:

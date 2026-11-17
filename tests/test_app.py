@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -27,6 +28,16 @@ def test_production_debug_disabled(tmp_path):
         assert client.get("/debug").status_code == 404
         assert client.get("/docs").status_code == 404
         assert client.get("/").status_code == 200
+
+def test_public_config_exposes_preferred_microphone(tmp_path):
+    app = create_app(Settings(
+        database_path=tmp_path / "shop.db",
+        camera_enabled=False,
+        microphone_device_label="USB Condenser Microphone",
+    ))
+    endpoint = next(route.endpoint for route in app.routes if route.path == "/api/config")
+    config = asyncio.run(endpoint())
+    assert config["questions"]["microphone_device_label"] == "USB Condenser Microphone"
 
 def test_requires_ready_display(app):
     with client_for(app) as client:

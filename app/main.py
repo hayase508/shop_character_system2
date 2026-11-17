@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import threading
@@ -17,7 +18,16 @@ from .camera import CameraWorker
 from .config import Settings, load_settings
 from .customer_service import CustomerService, build_greeting_message
 from .database import Database
-from .reception import ReceptionController
+from .question_service import (
+    GeminiService,
+    QuestionAnswerService,
+    QuestionContext,
+    get_touch_question,
+    touch_question_catalog,
+)
+from .reception import QuestionConflictError, ReceptionController
+from .speech_service import SpeechRecognizer
+from .voicevox_service import VoicevoxService
 from .websocket_manager import WebSocketManager
 
 
@@ -34,7 +44,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     database = Database(app_settings.database_path)
     customer_service = CustomerService(database, app_settings)
     websocket_manager = WebSocketManager()
-    reception = ReceptionController(customer_service, websocket_manager, app_settings)
+    speech_recognizer = SpeechRecognizer(app_settings)
+    gemini = GeminiService(app_settings)
+    question_answers = QuestionAnswerService(app_settings, gemini)
+    voicevox = VoicevoxService(app_settings)
+    reception = ReceptionController(
+        customer_service,
+        websocket_manager,
+        app_settings,
+        speech_recognizer,
+        question_answers,
+        voicevox,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -73,8 +94,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             camera.start()
         app.state.camera = camera
         logger.info("[STATE] IDLE")
-        for url in {app_settings.idle_video_url, app_settings.welcome_video_url,
-                    app_settings.returning_video_url}:
+        for url in {
+            app_settings.idle_video_url,
+            app_settings.welcome_video_url,
+            app_settings.returning_video_url,
+            app_settings.speaking_intro_video_url,
+            app_settings.speaking_loop_video_url,
+        }:
             if not (app_settings.static_dir / url.removeprefix("/static/")).is_file():
                 logger.error("[VIDEO] File not found: %s; display will use fallback", url)
         for url in {
@@ -100,6 +126,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         logger.error("[DB] Still unavailable; retrying")
 
         recovery = asyncio.create_task(recover_database())
+        whisper_preload: asyncio.Task[None] | None = None
+        gemini_preload: asyncio.Task[None] | None = None
+        voicevox_preload: asyncio.Task[None] | None = None
+        if app_settings.question_enabled and app_settings.camera_enabled:
+            async def preload_whisper() -> None:
+                logger.info("[WHISPER] Preloading model in background")
+                try:
+                    await asyncio.to_thread(speech_recognizer.prepare)
+                except Exception as exc:
+                    logger.warning(
+                        "[WHISPER] Background preload failed: %s",
+                        type(exc).__name__,
+                    )
+
+            whisper_preload = asyncio.create_task(preload_whisper())
+        if (
+            app_settings.question_enabled
+            and app_settings.camera_enabled
+            and app_settings.question_unknown_policy == "gemini"
+            and gemini.available
+            and app_settings.gemini_preload
+        ):
+            async def preload_gemini() -> None:
+                try:
+                    await asyncio.to_thread(gemini.prepare)
+                    if app_settings.gemini_warmup:
+                        await gemini.warm_connection()
+                except Exception as exc:
+                    logger.warning(
+                        "[GEMINI] Background preparation failed: %s",
+                        type(exc).__name__,
+                    )
+
+            gemini_preload = asyncio.create_task(preload_gemini())
+        if (
+            app_settings.question_enabled
+            and app_settings.camera_enabled
+            and app_settings.voicevox_enabled
+            and app_settings.voicevox_preload
+        ):
+            async def preload_voicevox() -> None:
+                try:
+                    await asyncio.to_thread(voicevox.prepare)
+                    logger.info("[VOICEVOX] Shikoku Metan voice preloaded")
+                except Exception as exc:
+                    # Questions continue with browser SpeechSynthesis when the
+                    # separately installed local engine is unavailable.
+                    logger.warning(
+                        "[VOICEVOX] Background preload failed: %s",
+                        type(exc).__name__,
+                    )
+
+            voicevox_preload = asyncio.create_task(preload_voicevox())
         try:
             yield
         finally:
@@ -108,6 +187,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await recovery
             except asyncio.CancelledError:
                 pass
+            if whisper_preload and not whisper_preload.done():
+                whisper_preload.cancel()
+            if whisper_preload:
+                try:
+                    await whisper_preload
+                except asyncio.CancelledError:
+                    pass
+            for preload in (gemini_preload, voicevox_preload):
+                if preload and not preload.done():
+                    preload.cancel()
+                if preload:
+                    try:
+                        await preload
+                    except asyncio.CancelledError:
+                        pass
             if camera:
                 await asyncio.to_thread(camera.stop)
             await reception.close()
@@ -125,6 +219,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.reception = reception
     app.state.websocket_manager = websocket_manager
+    app.state.speech_recognizer = speech_recognizer
+    app.state.question_answers = question_answers
+    app.state.voicevox = voicevox
 
     if not app_settings.static_dir.exists():
         app_settings.static_dir.mkdir(parents=True, exist_ok=True)
@@ -137,6 +234,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="Display page is not installed")
         return FileResponse(index_path)
 
+    @app.get("/touch", include_in_schema=False)
+    async def touch_panel() -> FileResponse:
+        touch_path = app_settings.static_dir / "touch.html"
+        if not touch_path.exists():
+            raise HTTPException(status_code=503, detail="Touch panel is not installed")
+        return FileResponse(touch_path)
+
     @app.get("/health")
     async def health() -> dict[str, Any]:
         camera = app.state.camera
@@ -147,9 +251,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         db_ok = await asyncio.to_thread(database.ping)
         app.state.db_ready = db_ok
-        videos_ok = all((app_settings.static_dir / url.removeprefix("/static/")).is_file()
-                        for url in {app_settings.idle_video_url, app_settings.welcome_video_url,
-                                    app_settings.returning_video_url})
+        videos_ok = all(
+            (app_settings.static_dir / url.removeprefix("/static/")).is_file()
+            for url in {
+                app_settings.idle_video_url,
+                app_settings.welcome_video_url,
+                app_settings.returning_video_url,
+                app_settings.speaking_intro_video_url,
+                app_settings.speaking_loop_video_url,
+            }
+        )
         audio_ok = all(
             (app_settings.static_dir / url.removeprefix("/static/")).is_file()
             for url in {
@@ -167,6 +278,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "websocket_clients": await websocket_manager.connection_count(),
             "display_ready": websocket_manager.display_ready(),
             "reception": await reception.snapshot(),
+            "questions": {
+                "enabled": app_settings.question_enabled,
+                "microphone_available": websocket_manager.questions_available(),
+                "whisper": speech_recognizer.status(),
+                "gemini": (
+                    "configured" if gemini.available
+                    else "disabled_or_api_key_missing"
+                ),
+                "voicevox": voicevox.status(),
+            },
         }
 
     @app.get("/api/config")
@@ -192,6 +313,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "idle": app_settings.idle_video_url,
                 "new": app_settings.welcome_video_url,
                 "returning": app_settings.returning_video_url,
+                "speaking_intro": app_settings.speaking_intro_video_url,
+                "speaking_loop": app_settings.speaking_loop_video_url,
             },
             "audio": audio_urls,
             "subtitle_cues": subtitle_cues,
@@ -202,11 +325,65 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "idle_message": "カメラの前で少しお待ちください",
             "greeting_timeout_seconds": app_settings.browser_greeting_timeout_seconds,
             "debug_mode": app_settings.debug_mode,
+            "questions": {
+                "enabled": app_settings.question_enabled,
+                "input_mode": app_settings.question_input_mode,
+                "ready_timeout_seconds": app_settings.question_ready_timeout_seconds,
+                "recording_max_seconds": app_settings.question_recording_max_seconds,
+                "audio_bitrate": app_settings.question_audio_bitrate,
+                "microphone_device_label": app_settings.microphone_device_label,
+                "session_timeout_seconds": app_settings.question_session_timeout_seconds,
+                "speaking_timeout_seconds": app_settings.question_speaking_timeout_seconds,
+                "vad_enabled": app_settings.vad_enabled,
+                "vad_start_threshold": app_settings.vad_start_threshold,
+                "vad_start_duration_ms": app_settings.vad_start_duration_ms,
+                "vad_end_silence_ms": app_settings.vad_end_silence_ms,
+                "vad_min_speech_ms": app_settings.vad_min_speech_ms,
+                "vad_resume_delay_ms": app_settings.vad_resume_delay_ms,
+                "vad_preroll_ms": app_settings.vad_preroll_ms,
+                "vad_calibration_ms": app_settings.vad_calibration_ms,
+                "vad_noise_multiplier": app_settings.vad_noise_multiplier,
+                "vad_noise_margin": app_settings.vad_noise_margin,
+            },
         }
 
     @app.get("/api/state")
     async def state() -> dict[str, Any]:
         return await reception.snapshot()
+
+    @app.get("/api/touch/questions")
+    async def touch_questions() -> dict[str, Any]:
+        enabled = bool(
+            app_settings.question_enabled
+            and app_settings.question_input_mode in {"touch", "both"}
+        )
+        return {
+            "enabled": enabled,
+            "questions": touch_question_catalog() if enabled else [],
+        }
+
+    @app.post("/api/touch/questions/{question_id}")
+    async def submit_touch_question(question_id: str) -> dict[str, Any]:
+        if not (
+            app_settings.question_enabled
+            and app_settings.question_input_mode in {"touch", "both"}
+        ):
+            raise HTTPException(status_code=404, detail="Touch questions are disabled")
+        question = get_touch_question(question_id)
+        if question is None:
+            raise HTTPException(status_code=404, detail="Unknown touch question")
+        if not websocket_manager.display_ready():
+            raise HTTPException(status_code=409, detail="The main display is not ready")
+        try:
+            result = await reception.answer_touch_question(question)
+        except QuestionConflictError as exc:
+            raise HTTPException(status_code=409, detail="The receptionist is busy") from exc
+        return {
+            "accepted": True,
+            "question_id": result["question_id"],
+            "question": result["question"],
+            "answer": result["answer"],
+        }
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -236,10 +413,78 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if message_type == "display_ready":
                     owner = await websocket_manager.claim_display(websocket)
                     await websocket.send_json({"type": "display_role", "active": owner})
+                elif message_type == "question_capability":
+                    available = payload.get("available") is True
+                    microphone_label = payload.get("microphone_label")
+                    if isinstance(microphone_label, str):
+                        microphone_label = " ".join(microphone_label.split())[:120]
+                    else:
+                        microphone_label = ""
+                    updated = await websocket_manager.set_question_capability(
+                        websocket, available
+                    )
+                    if updated:
+                        logger.info(
+                            "[MICROPHONE] Browser input: %s",
+                            microphone_label or "default",
+                        )
+                        await reception.question_capability_changed(available)
+                    await websocket.send_json(
+                        {"type": "question_capability", "available": available and updated}
+                    )
                 elif message_type == "greeting_finished":
                     greeting_id = payload.get("greeting_id")
                     if websocket_manager.is_display(websocket) and isinstance(greeting_id, str) and greeting_id:
                         await reception.finish(greeting_id)
+                elif message_type == "speech_started":
+                    session_id = payload.get("question_session_id")
+                    question_id = payload.get("question_id")
+                    vad_metrics = (
+                        payload.get("vad_level"),
+                        payload.get("vad_threshold"),
+                        payload.get("vad_noise_floor"),
+                    )
+                    if all(isinstance(value, (int, float)) for value in vad_metrics):
+                        logger.info(
+                            "[VAD] Speech candidate: level=%.4f threshold=%.4f noise_floor=%.4f",
+                            *vad_metrics,
+                        )
+                    if (
+                        websocket_manager.is_display(websocket)
+                        and isinstance(session_id, str)
+                        and isinstance(question_id, str)
+                    ):
+                        try:
+                            await reception.start_question(session_id, question_id)
+                        except QuestionConflictError:
+                            logger.warning("[QUESTION] Ignoring stale speech_started")
+                elif message_type == "speech_discarded":
+                    session_id = payload.get("question_session_id")
+                    question_id = payload.get("question_id")
+                    if (
+                        websocket_manager.is_display(websocket)
+                        and isinstance(session_id, str)
+                        and isinstance(question_id, str)
+                    ):
+                        await reception.discard_question(session_id, question_id)
+                elif message_type == "answer_finished":
+                    session_id = payload.get("question_session_id")
+                    question_id = payload.get("question_id")
+                    if (
+                        websocket_manager.is_display(websocket)
+                        and isinstance(session_id, str)
+                        and isinstance(question_id, str)
+                    ):
+                        await reception.finish_answer(session_id, question_id)
+                elif message_type == "question_error":
+                    session_id = payload.get("question_session_id")
+                    question_id = payload.get("question_id")
+                    if (
+                        websocket_manager.is_display(websocket)
+                        and isinstance(session_id, str)
+                        and isinstance(question_id, str)
+                    ):
+                        await reception.fail_question(session_id, question_id)
                 elif message_type == "ping":
                     await websocket.send_json({"type": "pong"})
         except WebSocketDisconnect:
@@ -248,10 +493,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("[WEBSOCKET] Connection handler failed")
         finally:
             was_display = websocket_manager.is_display(websocket)
-            active_id = (await reception.snapshot())["greeting_id"] if was_display else None
             await websocket_manager.disconnect(websocket)
-            if active_id:
-                await reception.finish(active_id)
+            if was_display:
+                await reception.abort_active()
+
+    @app.post("/api/questions/{session_id}/{question_id}")
+    async def submit_question(
+        session_id: str,
+        question_id: str,
+        request: Request,
+        duration_ms: int = Query(ge=0),
+    ) -> dict[str, Any]:
+        if not app_settings.question_enabled:
+            raise HTTPException(status_code=404, detail="Not found")
+        if not _valid_question_token(session_id) or not _valid_question_token(question_id):
+            raise HTTPException(status_code=400, detail="Invalid question identifier")
+        if duration_ms < app_settings.vad_min_speech_ms:
+            await reception.discard_question(session_id, question_id)
+            raise HTTPException(status_code=422, detail="Speech was too short")
+        if duration_ms > int(app_settings.question_recording_max_seconds * 1000) + 1000:
+            raise HTTPException(status_code=413, detail="Recording was too long")
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+        if not content_type.startswith("audio/"):
+            raise HTTPException(status_code=415, detail="An audio content type is required")
+        declared_length = request.headers.get("content-length")
+        if declared_length:
+            try:
+                if int(declared_length) > app_settings.question_audio_max_bytes:
+                    raise HTTPException(status_code=413, detail="Audio is too large")
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid content length") from exc
+        audio = await request.body()
+        if not audio or len(audio) > app_settings.question_audio_max_bytes:
+            raise HTTPException(status_code=413, detail="Audio is empty or too large")
+        try:
+            result = await reception.process_question_audio(session_id, question_id, audio)
+        except QuestionConflictError as exc:
+            raise HTTPException(status_code=409, detail="Question is no longer active") from exc
+        audio_data = result.pop("audio")
+        result["audio_base64"] = (
+            base64.b64encode(audio_data).decode("ascii") if audio_data else None
+        )
+        return result
 
     def require_debug_mode() -> None:
         if not app_settings.debug_mode:
@@ -308,6 +591,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finished = await reception.finish()
         return {"finished": finished, "state": (await reception.snapshot())["state"]}
 
+    @app.post("/api/debug/question-answer")
+    async def debug_question_answer(
+        text: str = Query(min_length=1, max_length=200),
+        discount_eligible: bool = Query(default=False),
+        allow_gemini: bool = Query(default=False),
+    ) -> dict[str, Any]:
+        require_debug_mode()
+        result = await question_answers.answer(
+            text,
+            QuestionContext(discount_eligible, 10 if discount_eligible else 61),
+            gemini_requests_used=(
+                0 if allow_gemini else app_settings.gemini_max_requests_per_session
+            ),
+            force_gemini=allow_gemini,
+        )
+        return {
+            "answer": result.text,
+            "answer_source": result.source,
+            "gemini_requested": result.gemini_attempted,
+        }
+
     @app.get("/debug", include_in_schema=False)
     async def debug_page() -> FileResponse:
         require_debug_mode()
@@ -322,6 +626,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await call_next(request)
 
     return app
+
+
+def _valid_question_token(value: str) -> bool:
+    return 1 <= len(value) <= 64 and all(
+        character.isalnum() or character in {"-", "_"} for character in value
+    )
 
 
 app = create_app()

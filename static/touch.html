@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>いちごうカフェ 質問タッチパネル</title>
+  <link rel="stylesheet" href="/static/touch.css?v=20261117-1">
+</head>
+<body>
+  <main class="touch-shell">
+    <header class="touch-header">
+      <div>
+        <p class="eyebrow">いちごうカフェ</p>
+        <h1>聞きたい質問を選んでください</h1>
+      </div>
+      <div class="header-actions">
+        <button id="touchFullscreenButton" class="touch-fullscreen-button" type="button">全画面表示</button>
+        <div id="connectionBadge" class="connection-badge" data-connected="false">接続中</div>
+      </div>
+    </header>
+
+    <section class="status-panel" aria-live="polite">
+      <p id="statusTitle" class="status-title">鬼店員の準備を確認しています</p>
+      <p id="statusMessage" class="status-message">少々お待ちください</p>
+    </section>
+
+    <section id="questionGrid" class="question-grid direct-question-grid" aria-label="質問一覧"></section>
+
+    <footer>
+      顔認証をしていないときも、いつでも質問できます
+    </footer>
+  </main>
+  <script src="/static/touch.js?v=20261117-2" defer></script>
+</body>
+</html>

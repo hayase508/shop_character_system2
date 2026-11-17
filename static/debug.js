@@ -14,3 +14,11 @@ document.getElementById("returning").addEventListener("click", () => {
     encodeURIComponent(document.getElementById("days").value));
 });
 document.getElementById("health").addEventListener("click", () => void request("/health", "GET"));
+document.getElementById("question-answer").addEventListener("click", () => {
+  void request("/api/debug/question-answer?text=" +
+    encodeURIComponent(document.getElementById("question").value));
+});
+document.getElementById("gemini-answer").addEventListener("click", () => {
+  void request("/api/debug/question-answer?allow_gemini=true&text=" +
+    encodeURIComponent(document.getElementById("question").value));
+});
