@@ -11,11 +11,17 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 set "ICHIGO_VOICEVOX_ENABLED=true"
+set "ICHIGO_QUESTION_ENABLED=true"
+set "ICHIGO_QUESTION_INPUT_MODE=touch"
 if exist ".env" (
   for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
     if /I "%%A"=="VOICEVOX_ENABLED" set "ICHIGO_VOICEVOX_ENABLED=%%B"
+    if /I "%%A"=="QUESTION_ENABLED" set "ICHIGO_QUESTION_ENABLED=%%B"
+    if /I "%%A"=="QUESTION_INPUT_MODE" set "ICHIGO_QUESTION_INPUT_MODE=%%B"
   )
 )
+if /I "!ICHIGO_QUESTION_ENABLED!"=="false" goto :skip_voicevox
+if /I "!ICHIGO_QUESTION_INPUT_MODE!"=="touch" goto :skip_voicevox
 if /I "!ICHIGO_VOICEVOX_ENABLED!"=="false" goto :skip_voicevox
 
 powershell.exe -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:50021/version | Out-Null; exit 0 } catch { exit 1 }"
@@ -56,5 +62,5 @@ exit /b 1
 
 :server_ready
 
-if not defined ICHIGO_SKIP_BROWSER start "" "http://127.0.0.1:8000/"
+if not defined ICHIGO_SKIP_BROWSER start "" "http://127.0.0.1:8000/?v=20261125-1"
 exit /b 0

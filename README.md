@@ -104,6 +104,7 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8000/api/debug/returning-custom
 | CAMERA_INDEX | 0 | カメラ番号。映らなければ1、2を試す |
 | CAMERA_BACKEND | auto | WindowsでDirectShow、失敗時に既定方式。dshow/msmfも指定可能 |
 | CAMERA_WIDTH / CAMERA_HEIGHT | 1280 / 720 | 要求するカメラ解像度（機器により異なる） |
+| CAMERA_FPS | 15 | カメラの要求フレームレート。顔認証精度を保ちながらCPU負荷を抑える |
 | CAMERA_RETRY_SECONDS | 5 | カメラ接続失敗後の再試行間隔 |
 | FACE_MATCH_THRESHOLD | 0.5 | 特徴量の距離上限。小さくするほど厳格 |
 | FACE_FRAME_SKIP | 5 | 5フレームに1回だけ顔を処理 |
@@ -121,18 +122,27 @@ Invoke-RestMethod -Method Post 'http://127.0.0.1:8000/api/debug/returning-custom
 | DATABASE_PATH | data/shop.db | 顧客DBの保存先 |
 | DEBUG_MODE | false | 開発APIと画面の有効化 |
 | LOG_LEVEL | INFO | ログ出力レベル |
+| ACCESS_LOG | false | 動画などのHTTPアクセスログ。falseでターミナル出力負荷を抑える |
 | HOST / PORT | 127.0.0.1 / 8000 | 起動アドレス／ポート |
 | CHARACTER_VIDEO_SPEAKING_INTRO | /static/videos/shinfurimuki_optimized.mp4 | 音声開始前に1回だけ最後まで再生する軽量版の振り向き動画 |
 | CHARACTER_VIDEO_SPEAKING_LOOP | /static/videos/yobidashi_mobile.mp4 | 振り向き終了後に音声を開始し、音声終了まで繰り返す動画 |
 | QUESTION_ENABLED | true | 顔認証後の自動質問受付を有効化 |
-| QUESTION_READY_TIMEOUT_SECONDS | 30 | 発話がないREADY状態の上限 |
+| QUESTION_READY_TIMEOUT_SECONDS | 40 | 挨拶・音声案内・回答の終了後、タッチパネル入力を待つ時間。無操作でIDLEへ戻る |
 | QUESTION_RECORDING_MAX_SECONDS | 15 | 1回の録音上限 |
 | QUESTION_SESSION_TIMEOUT_SECONDS | 60 | 連続質問を含むセッション全体の上限 |
 | QUESTION_SPEAKING_TIMEOUT_SECONDS | 45 | 回答再生が完了しない場合の上限 |
 | QUESTION_AUDIO_BITRATE | 128000 | 質問録音のOpusビットレート。認識品質を保つ初期値 |
 | QUESTION_UNKNOWN_POLICY | staff | `staff`はFAQ外を固定音声でスタッフ案内。`gemini`は従来の自由回答 |
-| QUESTION_INPUT_MODE | microphone | `microphone`は音声質問、`touch`は別タッチパネル、`both`は両方を利用 |
+| QUESTION_INPUT_MODE | touch | `touch`は軽量な別タッチパネル、`microphone`は音声質問、`both`は両方を利用 |
 | MICROPHONE_DEVICE_LABEL | 空欄 | 空欄は既定マイク。`USB Condenser Microphone`など製品名の一部を指定すると、その入力を優先 |
+| ASSISTANCE_VOICE_ENABLED | true | 待機中に人の声らしい音を検知し、タッチパネル利用を案内。音声は録音・保存しない |
+| ASSISTANCE_VOICE_COOLDOWN_SECONDS | 20 | 同じ案内を繰り返さない最短間隔 |
+| ASSISTANCE_VOICE_START_THRESHOLD | 0.010 | 案内検知に必要なRMS音量の最低値 |
+| ASSISTANCE_VOICE_START_DURATION_MS | 200 | 人の声らしい音が継続する必要時間 |
+| ASSISTANCE_VOICE_CALIBRATION_MS | 500 | 待機開始時に周囲の音量を測定する時間 |
+| ASSISTANCE_VOICE_NOISE_MULTIPLIER / NOISE_MARGIN | 1.4 / 0.0025 | 環境音から動的に音量閾値を決める倍率／余白 |
+| ASSISTANCE_VOICE_SPEECH_BAND_RATIO | 0.20 | 100〜4,000Hzの音声帯域が占める必要比率 |
+| ASSISTANCE_VOICE_ZCR_MIN / ZCR_MAX | 0.001 / 0.45 | 人の声らしさを絞るゼロ交差率の範囲 |
 | WHISPER_MODEL / DEVICE / COMPUTE_TYPE | base / cpu / int8 | ローカル音声認識モデルと実行方式 |
 | WHISPER_TIMEOUT_SECONDS | 30 | 音声認識の上限時間 |
 | WHISPER_BEAM_SIZE / MAX_NEW_TOKENS | 3 / 80 | 速度を保ちながら3候補から認識結果を選ぶ設定 |
@@ -170,12 +180,22 @@ HTTPとWebSocketは同じPCのlocalhost/127.0.0.1で使う構成です。別ホ�
 
 ### 質問タッチパネル
 
-`.env`で`QUESTION_INPUT_MODE=touch`にすると、音声認識を使わず、別画面の定型質問から選択できます。
+標準設定は`QUESTION_INPUT_MODE=touch`です。質問音声の認識モデルを読み込まず、別画面の定型質問から選択するため、CPUとメモリの使用量を抑えられます。接客画面では待機中だけ軽量な音声特徴量の監視を行いますが、録音・文字起こしは行いません。
 
 - 鬼店員ディスプレイ：`http://127.0.0.1:8000/`
 - 質問タッチパネル：`http://127.0.0.1:8000/touch`
 
-同じPCの小型タッチディスプレイなら、ブラウザをもう1つ開いて`/touch`を全画面表示してください。別PCやタブレットから利用する場合は、店舗内LAN向けのホスト設定・ファイアウォール設定・アクセス制御を別途設計してください。タッチパネルは顔認証後の案内が終了してREADYになった間だけ操作でき、回答中の連打は409で拒否されます。回答には`static/audio/faq/`の事前生成済み音声を使うため、Whisper・Gemini・動的VOICEVOXを待ちません。
+同じPCの小型タッチディスプレイなら、ブラウザをもう1つ開いて`/touch`を全画面表示してください。別PCやタブレットから利用する場合は、店舗内LAN向けのホスト設定・ファイアウォール設定・アクセス制御を別途設計してください。タッチパネルの質問は待機中も利用でき、回答中の連打は409で拒否されます。回答には`static/audio/faq/`の事前生成済み音声を使うため、Whisper・Gemini・動的VOICEVOXを待ちません。
+
+タッチパネル上部の地球マーク付き`language`ボタンを押すと、4言語を大きな一覧から選択できます。現在の言語にはチェックマークが表示されます。対応言語は日本語、English、中文、한국어です。選択言語はブラウザ内とサーバーに共有され、タッチパネルだけでなく鬼店員ディスプレイの店名、状態表示、案内、質問、回答字幕も同じ言語へ切り替わります。初来店・再来店の字幕も翻訳されます。音声はどの表示言語でも日本語のままで、既存の四国めたん録音音声を使用します。音声ファイルを再生できない場合も、日本語のSpeechSynthesisへ切り替え、画面の翻訳字幕は維持します。多言語の固定質問ではGeminiを呼びません。APIから取得する場合は`/api/touch/questions?language=en`のように`language`へ`ja`、`en`、`zh`、`ko`を指定できます。
+
+既存の案内画像には日本語が画像として焼き込まれているため、日本語以外を選んだときはその画像を非表示にし、同じ内容を翻訳字幕で案内します。これにより、選択した言語の画面へ日本語表記が混ざりません。
+
+### 待機中の声かけ案内
+
+`ASSISTANCE_VOICE_ENABLED=true`では、接客画面がIDLEの間だけUSBマイクを監視します。案内音声や来店挨拶が終了してREADYへ入ると監視を止め、40秒間はタッチパネル入力だけを待ちます。無操作でIDLEへ戻ると監視を再開します。開始ボタンを押したときにブラウザのマイク利用を許可してください。マイク名を指定していない場合は、名前にUSBを含む入力を自動優先し、自動ゲイン・エコー除去・ノイズ抑制を要求します。最初に周囲の音量を測定し、動的音量閾値に加えて100〜4,000Hzの比率とゼロ交差率を確認します。人の声らしい音が200ms継続した場合だけ、鬼店員が「何かお困りでしょうか？タッチパネルから私に質問してくださいね。」と案内します。単発の食器音やドア音では案内しにくい判定です。
+
+この監視は音量・周波数特徴だけをブラウザ内で計算し、録音、文字起こし、サーバーへの音声送信、ファイル保存は行いません。顔認証の接客中、タッチ回答中、鬼店員の音声再生中はマイク監視を停止します。案内後は標準で20秒のクールダウンを置き、IDLEまたはREADYへ戻ってから監視を再開します。
 
 ## 動画・音声の変更
 
@@ -192,11 +212,11 @@ CHARACTER_AUDIO_RETURNING_DISCOUNT=/static/audio/returning-discount.wav
 
 対応ファイルをstatic/videosへ配置してください。初期状態では待機中に軽量化済みの `idle_optimized.mp4`、話し始めに `shinfurimuki_optimized.mp4`、接客中に `yobidashi_mobile.mp4` を使います。MP4/H.264など対象ブラウザで再生できる形式を使います。待機動画は常時ループし、接客動画は鬼の音声が続いている間だけ繰り返して、音声終了時に停止します。元動画の音は消して、読み上げとの重複を防ぎます。
 
-初来店時は `static/audio/first-visit.wav` を再生し、再生できない場合はブラウザのSpeechSynthesisへ自動的に切り替わります。この音声は「VOICEVOX:四国めたん」を使用しています。元の `.vvproj` には飲み物の旧価格（300円）と豚汁を含まない旧案内が残っているため、再生成時はVOICEVOXエンジンを起動し、`python -m tools.export_voicevox_project <project.vvproj> static/audio/first-visit.wav --cues-output static/audio/first-visit.cues.json --replace-text "300円=500円" --replace-text "たまごとご飯はお代わり自由です。=豚汁とたまごとご飯は、すべてお代わり自由です。"` を実行してください。元プロジェクトを直接変更せず、音声と字幕を現行内容へ揃えられます。
+初来店時は `static/audio/first-visit.wav` を再生し、再生できない場合はブラウザのSpeechSynthesisへ自動的に切り替わります。この音声は「VOICEVOX:四国めたん」を使用しています。現在の案内文は `app/customer_service.py` の `FIRST_VISIT_GREETING_LINES` を正とし、`python -m tools.generate_greeting_audio first-visit` でWAVと字幕タイミングを同時に再生成できます。
 
 初来店案内中は、鬼店員を中央にして、左側へ`static/images/usage-guide.png`、右側へ`static/images/checkout-machine.png`を表示します。再来店案内・質問受付・待機中には両方の案内画像を表示しません。
 
-再来店時は `returning.wav`、60日以内の特典対象者には `returning-discount.wav` を再生します。特典対象者には「QRコードを精算機にかざすと、豚汁たまご定食が500円になる」ことを音声と字幕で案内します。音声ファイルが再生できない場合は、動的なメッセージ全体をSpeechSynthesisで読み上げます。
+再来店時は `returning.wav`、60日以内の特典対象者には `returning-discount.wav` を再生します。特典対象者には「いらっしゃいませ。QRコードを精算機にかざすと、豚汁たまご定食が500円になります。」と音声と字幕で案内します。音声ファイルが再生できない場合は、同じメッセージをSpeechSynthesisで読み上げます。特典用音声は `python -m tools.generate_greeting_audio returning-discount` で再生成できます。
 
 録音音声の字幕は同名の `*.cues.json` に開始・終了時刻を保存し、音声の再生位置に合わせて切り替えます。画面には最大2行だけ表示します。`.vvproj`から音声と字幕を再生成するときは `--cues-output` でJSONの保存先を指定してください。
 
@@ -299,6 +319,7 @@ python -m tools.check_camera --seconds 10 --index 0
 | 接客が終了しない | 音声・動画の長さとタイムアウト値。期限後にはIDLEへ戻る |
 | 質問待ちにならない | 開始ボタンでマイクを許可したか、QUESTION_ENABLED、VAD_ENABLED、ブラウザのサイト権限、/healthのquestions欄 |
 | 声を検知しない／環境音で反応する | まず周囲の音が静かな状態でREADYへ入り直して自動測定させる。誤反応時はVAD_START_THRESHOLD、VAD_NOISE_MULTIPLIER、VAD_START_DURATION_MSを上げ、反応しにくい場合は少しずつ下げる |
+| 待機中の案内が出ない／誤反応する | 開始ボタンでマイクを許可し、USBマイクが既定またはMICROPHONE_DEVICE_LABELに一致するか確認。誤反応時はASSISTANCE_VOICE_START_THRESHOLD、SPEECH_BAND_RATIO、START_DURATION_MSを上げ、反応しにくい場合は少しずつ下げる |
 | Whisperが遅い | `python -m tools.prepare_whisper`を一度実行。WHISPER_MODEL=base、DEVICE=cpu、COMPUTE_TYPE=int8を確認 |
 | FAQ外でスタッフ案内になる | 標準の高速動作です。自由回答が必要な場合だけ`QUESTION_UNKNOWN_POLICY=gemini`とGemini設定を確認 |
 | 回答がSpeechSynthesisになる | VOICEVOXのインストール、`http://127.0.0.1:50021/version`、VOICEVOX_ENABLED、サーバーの`[VOICEVOX]`ログを確認。標準外の場所ならVOICEVOX_ENGINE_EXEを設定 |

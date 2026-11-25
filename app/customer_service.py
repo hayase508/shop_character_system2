@@ -9,6 +9,20 @@ from .database import Database
 from .models import CustomerMatch, VisitResult
 
 
+FIRST_VISIT_GREETING_LINES = (
+    "ご来店ありがとうございます。",
+    "当店では、お代わり自由の豚汁たまご定食を1200円です。",
+    "コーヒーなどのお飲み物は500円でお代わり自由です。",
+    "配膳はセルフサービスとなっております。",
+    "どうぞごゆっくりお過ごしください。",
+)
+
+RETURNING_DISCOUNT_GREETING_LINES = (
+    "いらっしゃいませ。",
+    "QRコードを精算機にかざすと、豚汁たまご定食が500円になります。",
+)
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -73,23 +87,10 @@ def build_greeting_message(
     discount_valid_days: int = 60,
 ) -> str:
     if customer_type == "new":
-        return (
-            "いらっしゃいませ。初めてのご来店、ありがとうございます。"
-            "当店では、豚汁たまご定食を1,200円でご用意しております。"
-            "豚汁とたまごとご飯は、すべてお代わり自由です。"
-            "コーヒーやお茶などのお飲み物は500円で、こちらもお代わり自由です。"
-            f"また、2回目以降のご来店で、前回のご来店から{discount_valid_days}日以内の場合は、"
-            "たまご定食を500円でご利用いただけます。"
-            "配膳はセルフサービスとなっております。"
-            "どうぞ、ごゆっくりお過ごしください。"
-        )
+        return "".join(FIRST_VISIT_GREETING_LINES)
 
     if discount_eligible:
-        return (
-            "いらっしゃいませ。"
-            f"前回の来店から{discount_valid_days}日以内なので、"
-            "QRコードを精算機にかざすと、豚汁たまご定食が500円になります。"
-        )
+        return "".join(RETURNING_DISCOUNT_GREETING_LINES)
 
     if days_since_last_visit is not None and days_since_last_visit >= 1:
         message = (

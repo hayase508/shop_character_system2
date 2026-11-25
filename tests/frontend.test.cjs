@@ -63,6 +63,30 @@ test("microphone constraints can pin a preferred USB input", async () => {
   assert.equal(run('microphoneConstraints().deviceId'), undefined);
 });
 
+test("touch answer speech uses the selected language locale", async () => {
+  const { run } = setup();
+  await flush();
+  assert.equal(run('speechLocale("ja")'), "ja-JP");
+  assert.equal(run('speechLocale("en")'), "en-US");
+  assert.equal(run('speechLocale("zh")'), "zh-CN");
+  assert.equal(run('speechLocale("ko")'), "ko-KR");
+  assert.equal(run('speechLocale("unknown")'), "ja-JP");
+  assert.equal(run('answerDisplayText("en").title'), "Here is the answer");
+  assert.equal(run('answerDisplayText("zh").customer'), "顾客");
+  assert.equal(run('answerDisplayText("ko").kicker'), "도깨비 직원의 답변");
+});
+
+test("display language translates the customer-facing screen", async () => {
+  const { run, get } = setup();
+  await flush();
+  run('applyDisplayLanguage("en")');
+  assert.equal(get("shopMark").textContent, "Ichigo Cafe");
+  assert.equal(get("shopSubmark").textContent, "Meals & Coffee");
+  assert.equal(get("dialogueTitle").textContent, "Welcome");
+  assert.equal(get("dialogueMessage").textContent, "Please wait briefly in front of the camera");
+  assert.equal(get("audioButton").textContent, "Start service");
+});
+
 test("speaking video plays the turn intro once, then loops until speech finishes", async () => {
   const { run, get, speech } = setup();
   await flush();
@@ -208,18 +232,45 @@ test("speech failure keeps readable subtitles and can be cancelled", async () =>
   assert.equal(run("runtime.state"), "IDLE");
 });
 
-test("start click registers display immediately without waiting for speech", async () => {
+test("touch-only start registers display without creating Web Audio", async () => {
   const { run, get, speech, audioContexts } = setup();
   await flush();
+  run('runtime.config.questions = {input_mode: "touch"}');
   get("audioButton").dispatchEvent(new Event("click"));
   await flush();
   assert.equal(run("runtime.enabled"), true);
   assert.equal(run("runtime.socket.sent[0].type"), "display_ready");
+  assert.equal(audioContexts.length, 0);
+  assert.equal(speech.spoken.at(-1), "いらっしゃいませ。");
+  speech.current.onend();
+});
+
+test("microphone mode unlocks Web Audio on the start gesture", async () => {
+  const { run, get, speech, audioContexts } = setup();
+  await flush();
+  run('runtime.config.questions = {input_mode: "microphone"}');
+  get("audioButton").dispatchEvent(new Event("click"));
+  await flush();
   assert.equal(audioContexts.length, 1);
   assert.equal(audioContexts[0].state, "running");
   assert.equal(audioContexts[0].resumeCount, 1);
   assert.equal(speech.spoken.at(-1), "いらっしゃいませ。");
   speech.current.onend();
+});
+
+test("ambient assistance unlocks Web Audio even in touch-only mode", async () => {
+  const { run, get, speech, audioContexts } = setup();
+  await flush();
+  run('runtime.config.questions = {input_mode: "touch"}');
+  run('runtime.config.assistance_voice = {enabled: true}');
+  get("audioButton").dispatchEvent(new Event("click"));
+  await flush();
+  assert.equal(audioContexts.length, 1);
+  assert.equal(audioContexts[0].state, "running");
+  assert.equal(speech.spoken.at(-1), "いらっしゃいませ。");
+  speech.current.onend();
+  await flush();
+  assert.equal(run("runtime.assistanceSuppressed"), false);
 });
 
 test("question answer plays the turn intro, then loops only while the voice is speaking", async () => {
@@ -327,6 +378,28 @@ test("question answers prefer a prerecorded audio URL", async () => {
   assert.equal(run("runtime.socket.sent.at(-1).type"), "answer_finished");
 });
 
+test("translated touch answer keeps Japanese speech", async () => {
+  const { run, get, speech } = setup();
+  await flush();
+  run(`runtime.config.questions = {
+    speaking_timeout_seconds: 30, vad_resume_delay_ms: 0
+  }`);
+  run('runtime.questionSessionId = "session-en"; runtime.activeQuestionId = "question-en"');
+  const playback = run(`playQuestionAnswer({
+    session_id: "session-en", question_session_id: "session-en",
+    question_id: "question-en", question: "How do I pay?",
+    answer: "Please insert cash into the payment machine.",
+    spoken_answer: "精算機に現金を投入してください。",
+    answer_language: "en", audio_url: null, audio_base64: null
+  })`);
+  get("characterVideo").dispatchEvent(new Event("ended"));
+  await flush();
+  assert.equal(speech.spoken.at(-1), "精算機に現金を投入してください。");
+  assert.equal(get("dialogueMessage").textContent, "Please insert cash into the payment machine.");
+  speech.current.onend();
+  await playback;
+});
+
 test("VAD requires sustained sound and stops after silence", async () => {
   const { run } = setup();
   await flush();
@@ -341,6 +414,50 @@ test("VAD requires sustained sound and stops after silence", async () => {
   assert.equal(run("updateVadTracker(tracker, 0.04, 900)"), null);
   assert.equal(run("updateVadTracker(tracker, 0.0, 1899)"), null);
   assert.equal(run("updateVadTracker(tracker, 0.0, 1900).type"), "end");
+});
+
+test("ambient assistance requires sustained speech-like sound", async () => {
+  const { run } = setup();
+  await flush();
+  run(`assistanceTracker = createAssistanceVoiceTracker({
+    start_threshold: 0.035, start_duration_ms: 700,
+    calibration_ms: 0, noise_multiplier: 2, noise_margin: 0.008,
+    speech_band_ratio: 0.5, zcr_min: 0.005, zcr_max: 0.30
+  }, 0)`);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.05, 0.7, 0.08, 0)"), null);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.05, 0.7, 0.08, 699)"), null);
+  assert.equal(
+    run("updateAssistanceVoiceTracker(assistanceTracker, 0.05, 0.7, 0.08, 700).type"),
+    "voice",
+  );
+});
+
+test("ambient assistance rejects transient and non-speech-band noise", async () => {
+  const { run } = setup();
+  await flush();
+  run(`assistanceTracker = createAssistanceVoiceTracker({
+    start_threshold: 0.035, start_duration_ms: 700,
+    calibration_ms: 0, noise_multiplier: 2, noise_margin: 0.008,
+    speech_band_ratio: 0.5, zcr_min: 0.005, zcr_max: 0.30
+  }, 0)`);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.08, 0.2, 0.08, 0)"), null);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.08, 0.2, 0.08, 1000)"), null);
+  assert.equal(run("assistanceTracker.candidateSince"), null);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.05, 0.7, 0.08, 1100)"), null);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.0, 0, 0, 1200)"), null);
+  assert.equal(run("updateAssistanceVoiceTracker(assistanceTracker, 0.05, 0.7, 0.08, 1900)"), null);
+  assert.equal(run("assistanceTracker.triggered"), false);
+});
+
+test("ambient assistance pauses during the touch-panel READY window", async () => {
+  const { run } = setup();
+  await flush();
+  run('runtime.config.questions = {input_mode: "touch"}; runtime.state = State.READY');
+  assert.equal(run("assistanceMonitoringAllowed()"), false);
+  run("runtime.state = State.IDLE");
+  assert.equal(run("assistanceMonitoringAllowed()"), true);
+  run("runtime.state = State.SPEAKING");
+  assert.equal(run("assistanceMonitoringAllowed()"), false);
 });
 
 test("VAD calibrates to ambient noise before accepting speech", async () => {

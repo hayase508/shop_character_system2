@@ -11,6 +11,7 @@ from typing import Any, Sequence
 from .config import Settings
 from .customer_service import CustomerService, build_greeting_message
 from .question_service import (
+    LOCAL_VOICE_LINES,
     QuestionAnswerService,
     QuestionContext,
     TouchQuestion,
@@ -77,6 +78,7 @@ class ReceptionController:
         self._ready_timeout_task: asyncio.Task[None] | None = None
         self._session_timeout_task: asyncio.Task[None] | None = None
         self._speaking_timeout_task: asyncio.Task[None] | None = None
+        self._last_assistance_at = float("-inf")
 
     async def process_face_encoding(self, encoding: Sequence[float]) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)
@@ -235,12 +237,15 @@ class ReceptionController:
                     "type": "touch_question_started",
                     "question": question.label,
                     "answer_source": "touch_panel",
+                    "answer_language": question.language,
                 }
             )
         logger.info("[TOUCH] Question selected: %s", question.question_id)
         logger.info("[STATE] THINKING")
         await self.websocket_manager.broadcast(started_payload)
 
+        # Language selection changes subtitles/UI only.  Every locale keeps
+        # using the established Japanese Shikoku Metan recording.
         audio_url = self._prerecorded_answer_url(question.audio_key)
         async with self._lock:
             session = self._require_question_locked(session.session_id, question_id)
@@ -254,7 +259,10 @@ class ReceptionController:
                     "type": "touch_answer_started",
                     "question": question.label,
                     "answer": question.answer,
+                    "spoken_answer": LOCAL_VOICE_LINES[question.audio_key],
                     "answer_source": "touch_panel",
+                    "answer_language": question.language,
+                    "audio_language": "ja",
                     "audio_url": audio_url,
                     "audio_mime_type": "audio/wav" if audio_url else None,
                     "display_image_url": question.display_image_url,
@@ -266,6 +274,56 @@ class ReceptionController:
         logger.info("[STATE] SPEAKING")
         await self.websocket_manager.broadcast(answer_payload)
         return answer_payload
+
+    async def start_assistance_prompt(self) -> bool:
+        """Play one local prompt after browser-side speech-like sound detection."""
+        now = time.monotonic()
+        question_id = uuid.uuid4().hex
+        async with self._lock:
+            if (
+                not self.settings.assistance_voice_enabled
+                or self._state not in {self.IDLE, self.READY}
+                or now - self._last_assistance_at
+                < self.settings.assistance_voice_cooldown_seconds
+            ):
+                return False
+            if self._state == self.READY:
+                if (
+                    self.settings.question_input_mode != "touch"
+                    or self._question_session is None
+                ):
+                    return False
+                session = self._question_session
+                session.current_question_id = question_id
+                self._cancel_task(self._ready_timeout_task)
+                self._ready_timeout_task = None
+            else:
+                session = QuestionSession(
+                    session_id=uuid.uuid4().hex,
+                    context=QuestionContext(False, None),
+                    deadline=now + self.settings.question_session_timeout_seconds,
+                    current_question_id=question_id,
+                    touch_only=True,
+                )
+                self._question_session = session
+            self._state = self.SPEAKING
+            self._last_assistance_at = now
+            self._schedule_speaking_timeout_locked(session.session_id, question_id)
+            payload = self._state_payload(self.SPEAKING, session)
+            payload.update(
+                {
+                    "type": "assistance_prompt_started",
+                    "question": "",
+                    "answer": LOCAL_VOICE_LINES["assistance-prompt"],
+                    "answer_source": "assistance_prompt",
+                    "audio_url": self._prerecorded_answer_url("assistance-prompt"),
+                    "audio_mime_type": "audio/wav",
+                }
+            )
+        logger.info("[ASSISTANCE] Human voice detected; prompt started")
+        logger.info("[STATE] SPEAKING")
+        await self.websocket_manager.broadcast(payload)
+        return True
 
     async def discard_question(self, session_id: str, question_id: str) -> bool:
         async with self._lock:
@@ -470,14 +528,17 @@ class ReceptionController:
             if self._state != self.SPEAKING:
                 return False
             session.current_question_id = None
-            if session.touch_only:
-                self._clear_question_session_locked()
-                self._state = self.IDLE
-                payload = {"type": "state_changed", "state": self.IDLE}
-            else:
-                self._state = self.READY
-                self._schedule_ready_timeout_locked(session.session_id)
-                payload = self._ready_payload(session)
+            # Every completed voice response opens a fresh touch-panel window.
+            # Reset the session deadline so the full READY timeout is available
+            # even when the greeting or answer itself took several seconds.
+            session.deadline = time.monotonic() + max(
+                self.settings.question_session_timeout_seconds,
+                self.settings.question_ready_timeout_seconds,
+            )
+            self._state = self.READY
+            self._schedule_session_timeout_locked(session.session_id)
+            self._schedule_ready_timeout_locked(session.session_id)
+            payload = self._ready_payload(session)
         logger.info("[QUESTION] Answer finished: question_id=%s", question_id)
         logger.info("[STATE] %s", payload["state"])
         await self.websocket_manager.broadcast(payload)
@@ -562,6 +623,10 @@ class ReceptionController:
     async def current_event(self) -> dict[str, Any] | None:
         async with self._lock:
             return dict(self._current_event) if self._current_event else None
+
+    def camera_processing_allowed(self) -> bool:
+        """Cheap cross-thread hint; the locked state checks remain authoritative."""
+        return self._state == self.IDLE and self.websocket_manager.display_ready()
 
     async def close(self) -> None:
         for task in (
@@ -694,7 +759,15 @@ class ReceptionController:
             task.cancel()
 
     def _ready_payload(self, session: QuestionSession) -> dict[str, Any]:
-        remaining = max(0, int(session.deadline - time.monotonic()))
+        remaining = max(
+            0,
+            int(
+                min(
+                    self.settings.question_ready_timeout_seconds,
+                    session.deadline - time.monotonic(),
+                )
+            ),
+        )
         return {
             "type": "state_changed",
             "state": self.READY,

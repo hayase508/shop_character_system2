@@ -4,16 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>いちごうカフェ 質問タッチパネル</title>
-  <link rel="stylesheet" href="/static/touch.css?v=20261117-1">
+  <link rel="stylesheet" href="/static/touch.css?v=20261124-4">
 </head>
 <body>
   <main class="touch-shell">
     <header class="touch-header">
       <div>
-        <p class="eyebrow">いちごうカフェ</p>
-        <h1>聞きたい質問を選んでください</h1>
+        <p class="eyebrow" id="touchBrand">いちごうカフェ</p>
+        <h1 id="touchHeading">聞きたい質問を選んでください</h1>
       </div>
       <div class="header-actions">
+        <button id="languageButton" class="language-button" type="button"
+                aria-haspopup="dialog" aria-controls="languageDialog" aria-expanded="false">
+          <span class="language-icon" aria-hidden="true">🌐</span>
+          <span class="language-button-title">language</span>
+          <span id="selectedLanguageLabel">日本語</span>
+          <span class="language-chevron" aria-hidden="true">▼</span>
+        </button>
         <button id="touchFullscreenButton" class="touch-fullscreen-button" type="button">全画面表示</button>
         <div id="connectionBadge" class="connection-badge" data-connected="false">接続中</div>
       </div>
@@ -26,10 +33,47 @@
 
     <section id="questionGrid" class="question-grid direct-question-grid" aria-label="質問一覧"></section>
 
-    <footer>
+    <footer id="touchFooter">
       顔認証をしていないときも、いつでも質問できます
     </footer>
   </main>
-  <script src="/static/touch.js?v=20261117-2" defer></script>
+
+  <div id="languageDialog" class="language-dialog" role="dialog" aria-modal="true"
+       aria-labelledby="languageDialogTitle" hidden>
+    <section class="language-card">
+      <div class="language-card-heading">
+        <div>
+          <p class="language-card-kicker">Language</p>
+          <h2 id="languageDialogTitle">言語を選択してください</h2>
+        </div>
+        <button id="languageCloseButton" class="language-close-button" type="button"
+                aria-label="閉じる">×</button>
+      </div>
+      <div class="language-options" role="list">
+        <button class="language-option" type="button" data-language="ja" role="listitem">
+          <span class="language-option-native">日本語</span>
+          <span class="language-option-name">Japanese</span>
+          <span class="language-option-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="language-option" type="button" data-language="en" role="listitem">
+          <span class="language-option-native">English</span>
+          <span class="language-option-name">英語</span>
+          <span class="language-option-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="language-option" type="button" data-language="zh" role="listitem">
+          <span class="language-option-native">中文</span>
+          <span class="language-option-name">中国語 / Chinese</span>
+          <span class="language-option-check" aria-hidden="true">✓</span>
+        </button>
+        <button class="language-option" type="button" data-language="ko" role="listitem">
+          <span class="language-option-native">한국어</span>
+          <span class="language-option-name">韓国語 / Korean</span>
+          <span class="language-option-check" aria-hidden="true">✓</span>
+        </button>
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/touch.js?v=20261124-4" defer></script>
 </body>
 </html>

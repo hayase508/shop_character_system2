@@ -52,7 +52,12 @@ class FaceService:
             # Largest face only: two people in one image cannot count as
             # the required two-frame confirmation of a single customer.
             locations = [max(locations, key=lambda box: (box[2] - box[0]) * (box[1] - box[3]))]
-            logger.info("[FACE] Face detected: count=%s", len(locations))
+            now = monotonic()
+            if now - getattr(self, "_last_detection_log_at", float("-inf")) >= 5:
+                logger.info("[FACE] Face detected: count=%s", len(locations))
+                self._last_detection_log_at = now
+            else:
+                logger.debug("[FACE] Face detected: count=%s", len(locations))
             encodings = self.face_recognition.face_encodings(rgb_frame, locations)
             if not encodings:
                 logger.warning("[FACE] Face found but encoding could not be generated")

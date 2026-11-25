@@ -11,7 +11,14 @@ FACE = (0.1,) * 128
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(database_path=tmp_path / "shop.db", camera_enabled=False, debug_mode=True))
+    # These tests exercise the original face-reception lifecycle. Question
+    # session transitions are covered separately in test_questions.py.
+    return create_app(Settings(
+        database_path=tmp_path / "shop.db",
+        camera_enabled=False,
+        debug_mode=True,
+        question_enabled=False,
+    ))
 
 def client_for(app):
     return TestClient(app, base_url="http://localhost")
@@ -38,6 +45,18 @@ def test_public_config_exposes_preferred_microphone(tmp_path):
     endpoint = next(route.endpoint for route in app.routes if route.path == "/api/config")
     config = asyncio.run(endpoint())
     assert config["questions"]["microphone_device_label"] == "USB Condenser Microphone"
+    assert config["assistance_voice"] == {
+        "enabled": True,
+        "cooldown_seconds": 20.0,
+        "start_threshold": 0.010,
+        "start_duration_ms": 200.0,
+        "calibration_ms": 500.0,
+        "noise_multiplier": 1.4,
+        "noise_margin": 0.0025,
+        "speech_band_ratio": 0.20,
+        "zcr_min": 0.001,
+        "zcr_max": 0.45,
+    }
 
 def test_requires_ready_display(app):
     with client_for(app) as client:

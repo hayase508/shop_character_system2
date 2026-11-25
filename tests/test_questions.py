@@ -45,12 +45,10 @@ def test_touch_question_catalog_uses_prerecorded_local_answers():
     catalog = touch_question_catalog()
     assert len(catalog) == 3
     assert len({item["id"] for item in catalog}) == len(catalog)
-    assert {item["category"] for item in catalog} == {
-        "payment", "benefit", "about"
-    }
+    assert {item["category"] for item in catalog} == {"payment", "benefit", "food"}
     assert all(item["category_label"] for item in catalog)
     assert [item["category_label"] for item in catalog] == [
-        "支払方法", "再来店特典", "いちごうカフェとは"
+        "支払方法", "再来店特典", "お食事"
     ]
     for item in catalog:
         question = get_touch_question(item["id"])
@@ -64,6 +62,36 @@ def test_touch_question_catalog_uses_prerecorded_local_answers():
         "/static/images/revisit-benefit.png"
     )
     assert get_touch_question("repeat-benefit").display_image_layout == "portrait"
+    assert get_touch_question("meal-info").answer == (
+        "当店ではお代わり自由の豚汁たまご定食とドリンクバーがございます。"
+    )
+
+
+@pytest.mark.parametrize(
+    "language,expected_label,answer_fragment",
+    [
+        ("en", "How do I pay?", "insert cash"),
+        ("zh-CN", "如何付款？", "投入下方的结算机"),
+        ("ko_KR", "결제 방법을 알고 싶어요", "현금을 넣어 주세요"),
+    ],
+)
+def test_touch_question_catalog_is_localized(language, expected_label, answer_fragment):
+    catalog = touch_question_catalog(language)
+    question = get_touch_question("payment-method", language)
+
+    assert catalog[0]["label"] == expected_label
+    assert question is not None
+    assert question.language == language.lower().replace("_", "-").split("-", 1)[0]
+    assert answer_fragment in question.answer
+    assert question.display_image_url == "/static/images/checkout-machine.png"
+
+
+def test_unknown_touch_language_falls_back_to_japanese():
+    question = get_touch_question("payment-method", "fr")
+
+    assert question is not None
+    assert question.language == "ja"
+    assert question.label == "支払方法を知りたい"
 
 
 class FakeAsyncModels:
@@ -158,8 +186,8 @@ def test_repeat_visit_faq_explains_qr_code_without_gemini():
     service = QuestionAnswerService(Settings(), gemini)
     answer = resolve(service, "再来店特典を教えて")
     assert "60日以内" in answer.text
-    assert "QRコードを精算機にかざす" in answer.text
-    assert "豚汁たまご定食が500円" in answer.text
+    assert "QRコードをかざすと定食が500円" in answer.text
+    assert "QRコードが発行" in answer.text
     assert answer.source == "faq"
     assert gemini.calls == 0
 
@@ -282,7 +310,64 @@ def test_greeting_to_ready_and_ready_timeout(tmp_path):
         assert client.get("/api/state").json()["state"] == "IDLE"
 
 
-def test_touch_question_is_available_while_idle_and_returns_to_idle(tmp_path):
+def test_touch_answer_opens_ready_window_then_returns_to_idle(tmp_path):
+    class FakeWebSocketManager:
+        def __init__(self):
+            self.messages = []
+
+        async def broadcast(self, payload):
+            self.messages.append(payload)
+            return 1
+
+    async def scenario():
+        audio_path = tmp_path / "static" / "audio" / "faq" / "payment-method.wav"
+        audio_path.parent.mkdir(parents=True)
+        audio_path.write_bytes(b"RIFF-test")
+        manager = FakeWebSocketManager()
+        controller = ReceptionController(
+            SimpleNamespace(),
+            manager,
+            Settings(
+                database_path=tmp_path / "shop.db",
+                static_dir=tmp_path / "static",
+                camera_enabled=False,
+                question_input_mode="touch",
+                gemini_enabled=False,
+                voicevox_enabled=False,
+                vad_resume_delay_ms=0,
+                question_ready_timeout_seconds=0.02,
+                question_session_timeout_seconds=1,
+            ),
+        )
+        question = get_touch_question("payment-method", "en")
+        assert question is not None
+
+        answer = await controller.answer_touch_question(question)
+
+        assert manager.messages[0]["type"] == "touch_question_started"
+        assert manager.messages[0]["state"] == "THINKING"
+        assert manager.messages[1]["type"] == "touch_answer_started"
+        assert manager.messages[1]["state"] == "SPEAKING"
+        assert answer["answer_language"] == "en"
+        assert answer["answer"].startswith("Please select")
+        assert answer["spoken_answer"] == LOCAL_VOICE_LINES["payment-method"]
+        assert answer["audio_language"] == "ja"
+        assert answer["audio_url"].startswith("/static/audio/faq/payment-method.wav?v=")
+        assert (await controller.snapshot())["state"] == "SPEAKING"
+        assert await controller.finish_answer(
+            answer["question_session_id"], answer["question_id"]
+        )
+        assert manager.messages[-1]["state"] == "READY"
+        assert (await controller.snapshot())["state"] == "READY"
+        await asyncio.sleep(0.04)
+        assert manager.messages[-1]["state"] == "IDLE"
+        assert (await controller.snapshot())["state"] == "IDLE"
+        await controller.close()
+
+    asyncio.run(scenario())
+
+
+def test_assistance_prompt_opens_ready_window_then_returns_to_idle(tmp_path):
     class FakeWebSocketManager:
         def __init__(self):
             self.messages = []
@@ -300,30 +385,34 @@ def test_touch_question_is_available_while_idle_and_returns_to_idle(tmp_path):
                 database_path=tmp_path / "shop.db",
                 static_dir=tmp_path / "static",
                 camera_enabled=False,
-                question_input_mode="touch",
-                gemini_enabled=False,
+                assistance_voice_enabled=True,
+                assistance_voice_cooldown_seconds=30,
                 voicevox_enabled=False,
                 vad_resume_delay_ms=0,
+                question_ready_timeout_seconds=0.02,
+                question_session_timeout_seconds=1,
             ),
         )
-        question = get_touch_question("payment-method")
-        assert question is not None
+        controller._schedule_speaking_timeout_locked = lambda *_: None
 
-        answer = await controller.answer_touch_question(question)
-
-        assert manager.messages[0]["type"] == "touch_question_started"
-        assert manager.messages[0]["state"] == "THINKING"
-        assert manager.messages[1]["type"] == "touch_answer_started"
-        assert manager.messages[1]["state"] == "SPEAKING"
+        assert await controller.start_assistance_prompt()
+        event = manager.messages[-1]
+        assert event["type"] == "assistance_prompt_started"
+        assert event["answer_source"] == "assistance_prompt"
+        assert event["answer"] == LOCAL_VOICE_LINES["assistance-prompt"]
         assert (await controller.snapshot())["state"] == "SPEAKING"
+        assert not await controller.start_assistance_prompt()
         assert await controller.finish_answer(
-            answer["question_session_id"], answer["question_id"]
+            event["question_session_id"], event["question_id"]
         )
+        assert manager.messages[-1]["state"] == "READY"
+        assert (await controller.snapshot())["state"] == "READY"
+        await asyncio.sleep(0.04)
         assert manager.messages[-1]["state"] == "IDLE"
         assert (await controller.snapshot())["state"] == "IDLE"
         await controller.close()
 
-    asyncio.run(scenario())
+    asyncio.run(asyncio.wait_for(scenario(), timeout=3))
 
 
 def test_question_flow_shows_text_before_voicevox_failure_and_returns_ready(tmp_path, monkeypatch):

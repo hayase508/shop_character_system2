@@ -16,8 +16,8 @@
         <div class="shop-identity">
           <span class="shop-crest" aria-hidden="true">一</span>
           <div>
-            <p class="shop-mark">いちごうカフェ</p>
-            <p class="shop-submark">御食事と珈琲</p>
+            <p class="shop-mark" id="shopMark">いちごうカフェ</p>
+            <p class="shop-submark" id="shopSubmark">御食事と珈琲</p>
           </div>
         </div>
         <div class="connection-status" id="connectionStatus" data-connected="false">
@@ -26,12 +26,13 @@
         </div>
       </header>
 
-      <section class="character-stage" aria-label="鬼キャラクター">
+      <section class="character-stage" id="characterStage" aria-label="鬼キャラクター">
         <div class="stage-sun" aria-hidden="true"></div>
         <div class="character-halo" aria-hidden="true"></div>
         <figure class="menu-board" id="menuBoard" hidden>
           <img
             src="/static/images/usage-guide.png?v=20261008-2"
+            id="usageGuideImage"
             alt="お店の利用方法。豚汁・たまご・ご飯のお代わり自由、飲み物、再来店特典、セルフ配膳のご案内"
           />
         </figure>
@@ -71,9 +72,9 @@
       </button>
       <button class="fullscreen-button" id="fullscreenButton" type="button">全画面表示</button>
       <audio id="greetingAudio" preload="auto"></audio>
-      <p class="voice-credit">VOICEVOX:四国めたん</p>
+      <p class="voice-credit" id="voiceCredit">VOICEVOX:四国めたん</p>
     </main>
 
-  <script src="/static/script.js?v=20261117-3" defer></script>
+  <script src="/static/script.js?v=20261125-1" defer></script>
   </body>
 </html>

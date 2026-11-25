@@ -18,9 +18,11 @@ class CameraWorker:
         self,
         settings: Settings,
         on_confirmed_face: Callable[[tuple[float, ...]], None],
+        should_process: Callable[[], bool] | None = None,
     ) -> None:
         self.settings = settings
         self.on_confirmed_face = on_confirmed_face
+        self.should_process = should_process or (lambda: True)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._status_lock = threading.Lock()
@@ -103,8 +105,16 @@ class CameraWorker:
 
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.camera_width)
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.settings.camera_height)
+            if hasattr(cv2, "CAP_PROP_FPS"):
+                capture.set(cv2.CAP_PROP_FPS, self.settings.camera_fps)
+            if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             self._set_status("running")
-            logger.info("[CAMERA] Camera started: index=%s", index)
+            logger.info(
+                "[CAMERA] Camera started: index=%s target_fps=%s",
+                index,
+                self.settings.camera_fps,
+            )
             return capture
         except Exception as exc:
             if capture is not None:
@@ -135,6 +145,8 @@ class CameraWorker:
 
             consecutive_read_errors = 0
             frame_number += 1
+            if not self.should_process():
+                continue
             if frame_number % self.settings.face_frame_skip:
                 continue
 

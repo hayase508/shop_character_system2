@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 
 LOCAL_VOICE_LINES: dict[str, str] = {
+    "assistance-prompt": (
+        "何かお困りでしょうか？"
+        "タッチパネルから私に質問してくださいね。"
+    ),
     "discount-eligible": "はい。QRコードを精算機にかざすと、豚汁たまご定食が500円になります。",
     "discount-ineligible": "本日は60日以内の特典対象ではないようです。詳しくはスタッフにお尋ねください。",
     "pork-soup-refill": "はい。豚汁はお代わり自由です。",
@@ -34,12 +38,7 @@ LOCAL_VOICE_LINES: dict[str, str] = {
         "下の精算機に現金を投入してください。"
     ),
     "meal-refills": (
-        "定食をご注文の方はご飯・卵・豚汁がお代わり自由です。"
-        "ドリンクバーをご注文された方は飲み放題です。"
-    ),
-    "cafe-about": (
-        "大江のお米と地元の新鮮な卵をお代わり自由でお楽しみ頂ける、"
-        "駅前の小さなカフェです。"
+        "当店ではお代わり自由の豚汁たまご定食とドリンクバーがございます。"
     ),
     "self-service": "配膳はセルフサービスです。よろしくお願いいたします。",
     "ask-staff": "お答えできません。詳しくはスタッフにお尋ねください。",
@@ -86,10 +85,12 @@ class TouchQuestion:
     display_image_url: str | None = None
     display_image_layout: str | None = None
     display_image_alt: str | None = None
+    language: str = "ja"
+    answer_text: str | None = None
 
     @property
     def answer(self) -> str:
-        return LOCAL_VOICE_LINES[self.audio_key]
+        return self.answer_text or LOCAL_VOICE_LINES[self.audio_key]
 
 
 TOUCH_QUESTIONS: tuple[TouchQuestion, ...] = (
@@ -113,25 +114,118 @@ TOUCH_QUESTIONS: tuple[TouchQuestion, ...] = (
         "portrait",
         "60日以内の再来店特典のご案内",
     ),
-    TouchQuestion("cafe-about", "いちごうカフェとは", "cafe-about", "about", "いちごうカフェとは"),
+    TouchQuestion("meal-info", "お食事", "meal-refills", "food", "お食事"),
 )
 TOUCH_QUESTION_BY_ID = {question.question_id: question for question in TOUCH_QUESTIONS}
 
+SUPPORTED_TOUCH_LANGUAGES = ("ja", "en", "zh", "ko")
+TOUCH_QUESTION_TRANSLATIONS: dict[str, dict[str, dict[str, str]]] = {
+    "en": {
+        "payment-method": {
+            "label": "How do I pay?",
+            "category_label": "Payment",
+            "answer": "Please select your item on this screen, then insert cash into the payment machine below.",
+            "display_image_alt": "Payment machine screen",
+        },
+        "repeat-benefit": {
+            "label": "What is the return-visit discount?",
+            "category_label": "Return-visit discount",
+            "answer": "When you order a set meal, you receive a QR code. Return within 60 days and scan it when ordering to get the set meal for 500 yen.",
+            "display_image_alt": "Return-visit discount within 60 days",
+        },
+        "meal-info": {
+            "label": "Meals",
+            "category_label": "Meals",
+            "answer": "We offer a tonjiru and egg set meal with unlimited refills, as well as a drink bar.",
+        },
+    },
+    "zh": {
+        "payment-method": {
+            "label": "如何付款？",
+            "category_label": "付款方式",
+            "answer": "请在此屏幕选择餐点，然后将现金投入下方的结算机。",
+            "display_image_alt": "结算机操作画面",
+        },
+        "repeat-benefit": {
+            "label": "什么是再次来店优惠？",
+            "category_label": "再次来店优惠",
+            "answer": "点套餐后会获得二维码。60天内再次来店，点餐时扫描二维码，套餐即可享受500日元优惠价。",
+            "display_image_alt": "60天内再次来店优惠说明",
+        },
+        "meal-info": {
+            "label": "餐饮",
+            "category_label": "餐饮",
+            "answer": "本店提供可免费续加的猪肉味噌汤鸡蛋套餐和饮料吧。",
+        },
+    },
+    "ko": {
+        "payment-method": {
+            "label": "결제 방법을 알고 싶어요",
+            "category_label": "결제 방법",
+            "answer": "이 화면에서 메뉴를 선택한 후 아래 결제기에 현금을 넣어 주세요.",
+            "display_image_alt": "결제기 조작 화면",
+        },
+        "repeat-benefit": {
+            "label": "재방문 혜택이란?",
+            "category_label": "재방문 혜택",
+            "answer": "정식을 주문하면 QR 코드를 드립니다. 60일 이내에 다시 방문하여 주문할 때 QR 코드를 스캔하면 정식을 500엔에 이용할 수 있습니다.",
+            "display_image_alt": "60일 이내 재방문 혜택 안내",
+        },
+        "meal-info": {
+            "label": "식사",
+            "category_label": "식사",
+            "answer": "저희 가게에는 리필이 자유로운 돼지고기 된장국 달걀 정식과 드링크 바가 있습니다.",
+        },
+    },
+}
 
-def touch_question_catalog() -> list[dict[str, str]]:
+
+def normalize_touch_language(language: str | None) -> str:
+    value = (language or "ja").strip().lower().replace("_", "-")
+    base = value.split("-", 1)[0]
+    return base if base in SUPPORTED_TOUCH_LANGUAGES else "ja"
+
+
+def touch_question_catalog(language: str = "ja") -> list[dict[str, str]]:
+    normalized = normalize_touch_language(language)
     return [
         {
             "id": question.question_id,
             "label": question.label,
             "category": question.category,
             "category_label": question.category_label,
+            "language": question.language,
         }
-        for question in TOUCH_QUESTIONS
+        for question in (
+            get_touch_question(item.question_id, normalized)
+            for item in TOUCH_QUESTIONS
+        )
+        if question is not None
     ]
 
 
-def get_touch_question(question_id: str) -> TouchQuestion | None:
-    return TOUCH_QUESTION_BY_ID.get(question_id)
+def get_touch_question(question_id: str, language: str = "ja") -> TouchQuestion | None:
+    question = TOUCH_QUESTION_BY_ID.get(question_id)
+    if question is None:
+        return None
+    normalized = normalize_touch_language(language)
+    if normalized == "ja":
+        return question
+    translation = TOUCH_QUESTION_TRANSLATIONS[normalized][question_id]
+    return TouchQuestion(
+        question_id=question.question_id,
+        label=translation["label"],
+        audio_key=question.audio_key,
+        category=question.category,
+        category_label=translation["category_label"],
+        language=normalized,
+        answer_text=translation["answer"],
+        display_image_url=question.display_image_url,
+        display_image_layout=question.display_image_layout,
+        display_image_alt=translation.get(
+            "display_image_alt", question.display_image_alt or ""
+        ),
+    )
 
 
 def local_answer(audio_key: str) -> LocalAnswer:

@@ -25,9 +25,9 @@ if not defined ICHIGO_BROWSER_EXE if exist "%ProgramFiles(x86)%\Microsoft\Edge\A
 if not defined ICHIGO_BROWSER_EXE if exist "%ProgramFiles%\Microsoft\Edge\Application\msedge.exe" set "ICHIGO_BROWSER_EXE=%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"
 
 if defined ICHIGO_BROWSER_EXE (
-  start "" "!ICHIGO_BROWSER_EXE!" --new-window "http://127.0.0.1:8000/" "http://127.0.0.1:8000/touch" "http://127.0.0.1:8000/debug"
+  start "" "!ICHIGO_BROWSER_EXE!" --new-window "http://127.0.0.1:8000/?v=20261125-1" "http://127.0.0.1:8000/touch?v=20261124-4" "http://127.0.0.1:8000/debug"
 ) else (
-  start "" "http://127.0.0.1:8000/"
+  start "" "http://127.0.0.1:8000/?v=20261125-1"
   start "" "http://127.0.0.1:8000/touch"
   start "" "http://127.0.0.1:8000/debug"
 )

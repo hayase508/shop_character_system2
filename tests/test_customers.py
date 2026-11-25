@@ -25,9 +25,13 @@ def test_new_roundtrip(service):
 
 def test_new_customer_drink_price_is_five_hundred_yen():
     message = build_greeting_message("new", None, False)
-    assert "豚汁とたまごとご飯は、すべてお代わり自由" in message
-    assert "お飲み物は500円" in message
-    assert "300円" not in message
+    assert message == (
+        "ご来店ありがとうございます。"
+        "当店では、お代わり自由の豚汁たまご定食を1200円です。"
+        "コーヒーなどのお飲み物は500円でお代わり自由です。"
+        "配膳はセルフサービスとなっております。"
+        "どうぞごゆっくりお過ごしください。"
+    )
 
 @pytest.mark.parametrize("days,eligible", [(10, True), (60, True), (61, False)])
 def test_previous_timestamp(service, days, eligible):
@@ -94,12 +98,13 @@ def test_invalid_features(service, encoding):
 
 def test_configured_discount_message():
     message = build_greeting_message("returning", 10, True, 30)
-    assert "30日以内" in message and "60日以内" not in message
+    assert "QRコードを精算機にかざす" in message
+    assert "日以内" not in message
 
 def test_discount_message_explains_qr_code_at_payment_machine():
     message = build_greeting_message("returning", 10, True)
     assert message == (
-        "いらっしゃいませ。前回の来店から60日以内なので、"
+        "いらっしゃいませ。"
         "QRコードを精算機にかざすと、豚汁たまご定食が500円になります。"
     )
 

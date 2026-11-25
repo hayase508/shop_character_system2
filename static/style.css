@@ -379,10 +379,10 @@ body[data-state="SPEAKING"][data-answer-image] .stage-sun {
 .dialogue-panel {
   position: relative;
   z-index: 4;
-  width: min(1140px, calc(100vw - 80px));
-  min-height: clamp(138px, 18vh, 184px);
+  width: min(1060px, calc(100vw - 100px));
+  min-height: clamp(122px, 15vh, 164px);
   margin: 0 auto;
-  padding: clamp(10px, 1.25vw, 17px) clamp(32px, 4.5vw, 64px);
+  padding: clamp(8px, 1vw, 14px) clamp(28px, 4vw, 52px);
   border: 7px solid #63271f;
   border-radius: 5px;
   outline: 1px solid rgba(216, 173, 85, 0.72);
@@ -446,7 +446,7 @@ body[data-state="SPEAKING"][data-answer-image] .stage-sun {
 .question-text[hidden] { display: none; }
 
 body[data-state="SPEAKING"] .dialogue-panel {
-  min-height: clamp(158px, 21vh, 214px);
+  min-height: clamp(142px, 18vh, 190px);
 }
 
 body[data-state="READY"] .connection-status,

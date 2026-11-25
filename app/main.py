@@ -23,6 +23,7 @@ from .question_service import (
     QuestionAnswerService,
     QuestionContext,
     get_touch_question,
+    normalize_touch_language,
     touch_question_catalog,
 )
 from .reception import QuestionConflictError, ReceptionController
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     gemini = GeminiService(app_settings)
     question_answers = QuestionAnswerService(app_settings, gemini)
     voicevox = VoicevoxService(app_settings)
+    display_language = {"value": "ja"}
     reception = ReceptionController(
         customer_service,
         websocket_manager,
@@ -90,7 +92,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
                 future.add_done_callback(log_failure)
 
-            camera = CameraWorker(app_settings, on_confirmed_face)
+            camera = CameraWorker(
+                app_settings,
+                on_confirmed_face,
+                reception.camera_processing_allowed,
+            )
             camera.start()
         app.state.camera = camera
         logger.info("[STATE] IDLE")
@@ -129,7 +135,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         whisper_preload: asyncio.Task[None] | None = None
         gemini_preload: asyncio.Task[None] | None = None
         voicevox_preload: asyncio.Task[None] | None = None
-        if app_settings.question_enabled and app_settings.camera_enabled:
+        microphone_questions = bool(
+            app_settings.question_enabled
+            and app_settings.question_input_mode in {"microphone", "both"}
+        )
+        if microphone_questions and app_settings.camera_enabled:
             async def preload_whisper() -> None:
                 logger.info("[WHISPER] Preloading model in background")
                 try:
@@ -142,7 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             whisper_preload = asyncio.create_task(preload_whisper())
         if (
-            app_settings.question_enabled
+            microphone_questions
             and app_settings.camera_enabled
             and app_settings.question_unknown_policy == "gemini"
             and gemini.available
@@ -161,7 +171,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             gemini_preload = asyncio.create_task(preload_gemini())
         if (
-            app_settings.question_enabled
+            microphone_questions
             and app_settings.camera_enabled
             and app_settings.voicevox_enabled
             and app_settings.voicevox_preload
@@ -345,6 +355,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "vad_noise_multiplier": app_settings.vad_noise_multiplier,
                 "vad_noise_margin": app_settings.vad_noise_margin,
             },
+            "assistance_voice": {
+                "enabled": app_settings.assistance_voice_enabled,
+                "cooldown_seconds": app_settings.assistance_voice_cooldown_seconds,
+                "start_threshold": app_settings.assistance_voice_start_threshold,
+                "start_duration_ms": app_settings.assistance_voice_start_duration_ms,
+                "calibration_ms": app_settings.assistance_voice_calibration_ms,
+                "noise_multiplier": app_settings.assistance_voice_noise_multiplier,
+                "noise_margin": app_settings.assistance_voice_noise_margin,
+                "speech_band_ratio": app_settings.assistance_voice_speech_band_ratio,
+                "zcr_min": app_settings.assistance_voice_zcr_min,
+                "zcr_max": app_settings.assistance_voice_zcr_max,
+            },
         }
 
     @app.get("/api/state")
@@ -352,24 +374,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return await reception.snapshot()
 
     @app.get("/api/touch/questions")
-    async def touch_questions() -> dict[str, Any]:
+    async def touch_questions(
+        language: str = Query(default="ja", max_length=10),
+    ) -> dict[str, Any]:
         enabled = bool(
             app_settings.question_enabled
             and app_settings.question_input_mode in {"touch", "both"}
         )
         return {
             "enabled": enabled,
-            "questions": touch_question_catalog() if enabled else [],
+            "questions": touch_question_catalog(language) if enabled else [],
         }
 
     @app.post("/api/touch/questions/{question_id}")
-    async def submit_touch_question(question_id: str) -> dict[str, Any]:
+    async def submit_touch_question(
+        question_id: str,
+        language: str = Query(default="ja", max_length=10),
+    ) -> dict[str, Any]:
         if not (
             app_settings.question_enabled
             and app_settings.question_input_mode in {"touch", "both"}
         ):
             raise HTTPException(status_code=404, detail="Touch questions are disabled")
-        question = get_touch_question(question_id)
+        question = get_touch_question(question_id, language)
         if question is None:
             raise HTTPException(status_code=404, detail="Unknown touch question")
         if not websocket_manager.display_ready():
@@ -412,7 +439,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 message_type = payload.get("type")
                 if message_type == "display_ready":
                     owner = await websocket_manager.claim_display(websocket)
-                    await websocket.send_json({"type": "display_role", "active": owner})
+                    role_payload: dict[str, Any] = {
+                        "type": "display_role",
+                        "active": owner,
+                    }
+                    # Preserve the original protocol shape for the default
+                    # language while restoring a non-Japanese selection after
+                    # a main-display reconnect.
+                    if display_language["value"] != "ja":
+                        role_payload["language"] = display_language["value"]
+                    await websocket.send_json(role_payload)
+                elif message_type == "display_language_changed":
+                    language = normalize_touch_language(payload.get("language"))
+                    display_language["value"] = language
+                    await websocket_manager.broadcast(
+                        {"type": "display_language_changed", "language": language}
+                    )
                 elif message_type == "question_capability":
                     available = payload.get("available") is True
                     microphone_label = payload.get("microphone_label")
@@ -432,6 +474,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     await websocket.send_json(
                         {"type": "question_capability", "available": available and updated}
                     )
+                elif message_type == "assistance_requested":
+                    accepted = False
+                    if websocket_manager.is_display(websocket):
+                        accepted = await reception.start_assistance_prompt()
+                    if not accepted:
+                        await websocket.send_json({"type": "assistance_prompt_rejected"})
+                elif message_type == "assistance_capability":
+                    if websocket_manager.is_display(websocket):
+                        microphone_label = payload.get("microphone_label")
+                        if not isinstance(microphone_label, str):
+                            microphone_label = ""
+                        logger.info(
+                            "[ASSISTANCE] Browser microphone: %s%s",
+                            "available" if payload.get("available") is True else "unavailable",
+                            f" ({' '.join(microphone_label.split())[:120]})"
+                            if microphone_label else "",
+                        )
+                elif message_type == "assistance_metrics":
+                    metrics = (
+                        payload.get("level"),
+                        payload.get("threshold"),
+                        payload.get("speech_band_ratio"),
+                        payload.get("zero_crossing_rate"),
+                    )
+                    if websocket_manager.is_display(websocket) and all(
+                        isinstance(value, (int, float)) for value in metrics
+                    ):
+                        logger.info(
+                            "[ASSISTANCE] level=%.4f threshold=%.4f band=%.3f zcr=%.3f calibrated=%s",
+                            *metrics,
+                            payload.get("calibrated") is True,
+                        )
                 elif message_type == "greeting_finished":
                     greeting_id = payload.get("greeting_id")
                     if websocket_manager.is_display(websocket) and isinstance(greeting_id, str) and greeting_id:

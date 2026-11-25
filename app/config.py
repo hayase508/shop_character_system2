@@ -37,6 +37,7 @@ class Settings:
     camera_backend: str = "auto"
     camera_width: int = 1280
     camera_height: int = 720
+    camera_fps: float = 15.0
     camera_retry_seconds: float = 5.0
     face_match_threshold: float = 0.5
     face_frame_skip: int = 5
@@ -52,6 +53,7 @@ class Settings:
     greeting_timeout_seconds: float = 190.0
     debug_mode: bool = False
     log_level: str = "INFO"
+    access_log: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
     idle_video_url: str = "/static/videos/idle_optimized.mp4"
@@ -64,15 +66,25 @@ class Settings:
     returning_discount_audio_url: str = "/static/audio/returning-discount.wav"
     browser_greeting_timeout_seconds: int = 180
     question_enabled: bool = True
-    question_ready_timeout_seconds: float = 30.0
+    question_ready_timeout_seconds: float = 40.0
     question_recording_max_seconds: float = 15.0
     question_session_timeout_seconds: float = 60.0
     question_speaking_timeout_seconds: float = 45.0
     question_audio_max_bytes: int = 10 * 1024 * 1024
     question_audio_bitrate: int = 128000
     question_unknown_policy: str = "staff"
-    question_input_mode: str = "microphone"
+    question_input_mode: str = "touch"
     microphone_device_label: str = ""
+    assistance_voice_enabled: bool = True
+    assistance_voice_cooldown_seconds: float = 20.0
+    assistance_voice_start_threshold: float = 0.010
+    assistance_voice_start_duration_ms: float = 200.0
+    assistance_voice_calibration_ms: float = 500.0
+    assistance_voice_noise_multiplier: float = 1.4
+    assistance_voice_noise_margin: float = 0.0025
+    assistance_voice_speech_band_ratio: float = 0.20
+    assistance_voice_zcr_min: float = 0.001
+    assistance_voice_zcr_max: float = 0.45
     whisper_model: str = "base"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
@@ -118,13 +130,18 @@ class Settings:
     voicevox_preload: bool = True
 
     def __post_init__(self) -> None:
-        positive = ("camera_width", "camera_height", "camera_retry_seconds",
+        positive = ("camera_width", "camera_height", "camera_fps", "camera_retry_seconds",
                     "face_frame_skip", "face_confirmation_count",
                     "face_confirmation_window_seconds", "camera_event_cooldown_seconds",
                     "greeting_timeout_seconds", "browser_greeting_timeout_seconds",
                     "question_ready_timeout_seconds", "question_recording_max_seconds",
                     "question_session_timeout_seconds", "question_speaking_timeout_seconds",
                     "question_audio_max_bytes", "question_audio_bitrate",
+                    "assistance_voice_cooldown_seconds",
+                    "assistance_voice_start_duration_ms",
+                    "assistance_voice_calibration_ms",
+                    "assistance_voice_noise_multiplier",
+                    "assistance_voice_noise_margin",
                     "whisper_timeout_seconds", "whisper_beam_size",
                     "whisper_max_new_tokens", "whisper_vad_min_speech_ms",
                     "whisper_vad_min_silence_ms", "whisper_vad_speech_pad_ms",
@@ -144,6 +161,16 @@ class Settings:
             raise ValueError("Face threshold and scale must be in (0, 1]")
         if not 0 < self.vad_start_threshold <= 1:
             raise ValueError("VAD_START_THRESHOLD must be in (0, 1]")
+        if not 0 < self.assistance_voice_start_threshold <= 1:
+            raise ValueError("ASSISTANCE_VOICE_START_THRESHOLD must be in (0, 1]")
+        if not 0 < self.assistance_voice_speech_band_ratio <= 1:
+            raise ValueError("ASSISTANCE_VOICE_SPEECH_BAND_RATIO must be in (0, 1]")
+        if not 0 <= self.assistance_voice_zcr_min < self.assistance_voice_zcr_max <= 1:
+            raise ValueError("Assistance voice ZCR range must satisfy 0 <= min < max <= 1")
+        if not 1 <= self.assistance_voice_noise_multiplier <= 10:
+            raise ValueError("ASSISTANCE_VOICE_NOISE_MULTIPLIER must be in [1, 10]")
+        if not 0 < self.assistance_voice_noise_margin <= 1:
+            raise ValueError("ASSISTANCE_VOICE_NOISE_MARGIN must be in (0, 1]")
         if not 0 <= self.whisper_no_speech_threshold <= 1:
             raise ValueError("WHISPER_NO_SPEECH_THRESHOLD must be in [0, 1]")
         if not -10 <= self.whisper_min_avg_logprob <= 0:
@@ -221,6 +248,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         camera_backend=os.getenv("CAMERA_BACKEND", "auto").strip().lower(),
         camera_width=int(os.getenv("CAMERA_WIDTH", "1280")),
         camera_height=int(os.getenv("CAMERA_HEIGHT", "720")),
+        camera_fps=float(os.getenv("CAMERA_FPS", "15")),
         camera_retry_seconds=float(os.getenv("CAMERA_RETRY_SECONDS", "5")),
         face_match_threshold=float(os.getenv("FACE_MATCH_THRESHOLD", "0.5")),
         face_frame_skip=int(os.getenv("FACE_FRAME_SKIP", "5")),
@@ -240,6 +268,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         greeting_timeout_seconds=float(os.getenv("GREETING_TIMEOUT_SECONDS", "190")),
         debug_mode=_as_bool(os.getenv("DEBUG_MODE"), False),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        access_log=_as_bool(os.getenv("ACCESS_LOG"), False),
         host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", "8000")),
         idle_video_url=os.getenv(
@@ -272,7 +301,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         ),
         question_enabled=_as_bool(os.getenv("QUESTION_ENABLED"), True),
         question_ready_timeout_seconds=float(
-            os.getenv("QUESTION_READY_TIMEOUT_SECONDS", "30")
+            os.getenv("QUESTION_READY_TIMEOUT_SECONDS", "40")
         ),
         question_recording_max_seconds=float(
             os.getenv("QUESTION_RECORDING_MAX_SECONDS", "15")
@@ -289,9 +318,39 @@ def load_settings(env_file: Path | None = None) -> Settings:
             "QUESTION_UNKNOWN_POLICY", "staff"
         ).strip().lower(),
         question_input_mode=os.getenv(
-            "QUESTION_INPUT_MODE", "microphone"
+            "QUESTION_INPUT_MODE", "touch"
         ).strip().lower(),
         microphone_device_label=os.getenv("MICROPHONE_DEVICE_LABEL", "").strip(),
+        assistance_voice_enabled=_as_bool(
+            os.getenv("ASSISTANCE_VOICE_ENABLED"), True
+        ),
+        assistance_voice_cooldown_seconds=float(
+            os.getenv("ASSISTANCE_VOICE_COOLDOWN_SECONDS", "20")
+        ),
+        assistance_voice_start_threshold=float(
+            os.getenv("ASSISTANCE_VOICE_START_THRESHOLD", "0.010")
+        ),
+        assistance_voice_start_duration_ms=float(
+            os.getenv("ASSISTANCE_VOICE_START_DURATION_MS", "200")
+        ),
+        assistance_voice_calibration_ms=float(
+            os.getenv("ASSISTANCE_VOICE_CALIBRATION_MS", "500")
+        ),
+        assistance_voice_noise_multiplier=float(
+            os.getenv("ASSISTANCE_VOICE_NOISE_MULTIPLIER", "1.4")
+        ),
+        assistance_voice_noise_margin=float(
+            os.getenv("ASSISTANCE_VOICE_NOISE_MARGIN", "0.0025")
+        ),
+        assistance_voice_speech_band_ratio=float(
+            os.getenv("ASSISTANCE_VOICE_SPEECH_BAND_RATIO", "0.20")
+        ),
+        assistance_voice_zcr_min=float(
+            os.getenv("ASSISTANCE_VOICE_ZCR_MIN", "0.001")
+        ),
+        assistance_voice_zcr_max=float(
+            os.getenv("ASSISTANCE_VOICE_ZCR_MAX", "0.45")
+        ),
         whisper_model=os.getenv("WHISPER_MODEL", "base").strip(),
         whisper_device=os.getenv("WHISPER_DEVICE", "cpu").strip(),
         whisper_compute_type=os.getenv("WHISPER_COMPUTE_TYPE", "int8").strip(),
